@@ -100,13 +100,13 @@ open class Api {
   @discardableResult
   public func send(_ request: URLRequest, completion: HttpDataCompletion) -> HttpOperation? {
     return send(request,
-                taskBuilder: { completion in
-                  self.urlSession.dataTask(with: request, completionHandler: self.transformToResult(completion))
+                taskBuilder: { interceptedRequest, completion in
+                  self.urlSession.dataTask(with: interceptedRequest, completionHandler: self.transformToResult(completion))
                 },
                 completion: completion)
   }
 
-  private func send(_ request: URLRequest, taskBuilder: @escaping (HttpDataCompletion) -> URLSessionTask, completion: HttpDataCompletion) -> HttpOperation? {
+  private func send(_ request: URLRequest, taskBuilder: @escaping (URLRequest, HttpDataCompletion) -> URLSessionTask, completion: HttpDataCompletion) -> HttpOperation? {
     let operation = HttpOperation { operation in
 
       var request = request
@@ -159,7 +159,7 @@ open class Api {
         return nil
       }
 
-      let task = taskBuilder(dataTaskCompletion)
+      let task = taskBuilder(request, dataTaskCompletion)
 
       task.resume()
       return task
