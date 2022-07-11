@@ -11,7 +11,7 @@ import Foundation
 open class OAuthInterceptor: ApiInterceptor {
   private let semaphore = DispatchSemaphore(value: 1)
   /// A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
-  public var onNotSignedIn: ((Error?) -> Void)? = nil
+  public var onFailedToRenew: ((Error?) -> Void)? = nil
   private var provider: OAuthProvider
 
   private var workItem: DispatchWorkItem?
@@ -19,16 +19,16 @@ open class OAuthInterceptor: ApiInterceptor {
   /// Initializes a new instance of OAuthInterceptor.
   /// - Parameters:
   ///   - provider: The oauth provider that is responsible for managing token.
-  ///   - onNotSignedIn: A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
-  public init(provider: OAuthProvider, onNotSignedIn: ((Error?) -> Void)? = nil) {
+  ///   - onFailedToRenew: A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
+  public init(provider: OAuthProvider, onFailedToRenew: ((Error?) -> Void)? = nil) {
     self.provider = provider
-    self.onNotSignedIn = onNotSignedIn
+    self.onFailedToRenew = onFailedToRenew
   }
 
-  private func isLoggedOut(with err: Error?) {
+  private func failedToRenew(with err: Error?) {
     workItem?.cancel()
     let workItem = DispatchWorkItem(block: { [weak self] in
-      self?.onNotSignedIn?(err)
+      self?.onFailedToRenew?(err)
     })
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
     self.workItem = workItem
@@ -41,14 +41,14 @@ open class OAuthInterceptor: ApiInterceptor {
   {
     guard provider.hasPreviousSignIn()
     else {
-      isLoggedOut(with: nil)
+      failedToRenew(with: nil)
       return
     }
 
     semaphore.wait()
     guard let token = provider.token
     else {
-      isLoggedOut(with: nil)
+      failedToRenew(with: nil)
       return
     }
     let request = provider.modify(request: request, token: token)
@@ -73,7 +73,7 @@ open class OAuthInterceptor: ApiInterceptor {
     guard provider.hasPreviousSignIn()
     else {
       semaphore.signal()
-      isLoggedOut(with: nil)
+      failedToRenew(with: nil)
       return true
     }
 
@@ -85,7 +85,7 @@ open class OAuthInterceptor: ApiInterceptor {
         _ = api.send(newRequest, completion: completion)
       case let .failure(err):
         self.semaphore.signal()
-        self.isLoggedOut(with: err)
+        self.failedToRenew(with: err)
       }
     }
     return true
