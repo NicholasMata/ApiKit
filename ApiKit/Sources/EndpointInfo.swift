@@ -10,7 +10,12 @@ import Foundation
 /// Static Endpoint information a basic implementation of EndpointInfo
 public struct StaticEndpointInfo: EndpointInfo {
   public var url: String
-  public var headers: [String: String] = [:]
+  public var headers: [String: String]
+
+  public init(url: String, headers: [String: String] = [:]) {
+    self.url = url
+    self.headers = headers
+  }
 }
 
 /// Endpoint information used to tie url and headers.
