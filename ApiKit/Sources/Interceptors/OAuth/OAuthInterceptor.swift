@@ -10,7 +10,8 @@ import Foundation
 /// Used to add OAuth access token to request for authentication / authorization.
 open class OAuthInterceptor: ApiInterceptor {
   private let semaphore = DispatchSemaphore(value: 1)
-  private let onNotSignedIn: (Error?) -> Void
+  /// A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
+  public var onNotSignedIn: ((Error?) -> Void)? = nil
   private var provider: OAuthProvider
 
   private var workItem: DispatchWorkItem?
@@ -18,8 +19,8 @@ open class OAuthInterceptor: ApiInterceptor {
   /// Initializes a new instance of OAuthInterceptor.
   /// - Parameters:
   ///   - provider: The oauth provider that is responsible for managing token.
-  ///   - onNotSignedIn: A callack that will get called on the DispatchQueue.main indicating the user could not be signed in.
-  public init(provider: OAuthProvider, onNotSignedIn: @escaping (Error?) -> Void) {
+  ///   - onNotSignedIn: A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
+  public init(provider: OAuthProvider, onNotSignedIn: ((Error?) -> Void)? = nil) {
     self.provider = provider
     self.onNotSignedIn = onNotSignedIn
   }
@@ -27,7 +28,7 @@ open class OAuthInterceptor: ApiInterceptor {
   private func isLoggedOut(with err: Error?) {
     workItem?.cancel()
     let workItem = DispatchWorkItem(block: { [weak self] in
-      self?.onNotSignedIn(err)
+      self?.onNotSignedIn?(err)
     })
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
     self.workItem = workItem
