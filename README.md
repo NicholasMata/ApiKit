@@ -79,9 +79,36 @@ private let mobileEndpoints = StaticEndpointInfo(url: "https://...", headers: ["
 
 Creating a custom interceptor allows you modify every request or response, or a specific request and response.
 
- Add Azure subscription key to all requests
+ Example of a inceptor that looks for bad status code and decodes a generic error response body.
 ```swift
+struct MyApiError {
+    var code: Int
+    var message: String
+}
 
+class ErrorInterceptor: ApiInterceptor {
+    func api(_ api: Api,
+           didReceive result: Result<HttpDataResponse, Error>,
+           withId identifier: UUID,
+           for request: URLRequest,
+           completion: HttpDataCompletion) -> Bool
+    {
+        if let .success(response) = result { 
+            if !response.successful {
+                let apiError = api.config.decoder.decode(MyApiError.self, response.data)
+                completion(.failure(ApiError.badStatusCode(error: apiError, response: response)))
+                return true
+            }
+        }
+        return false
+    }
+}
+
+let api = Api(config: DefaultApiConfig(interceptors: [ErrorInterceptor()]))
+api.send(.get("https://....")) { (result: Result<[User], Error>) in
+    switch (result) {
+        case let .failure(error):
+            if let Api
+    }
+}
 ```
-
-

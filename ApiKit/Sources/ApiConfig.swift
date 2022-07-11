@@ -19,7 +19,7 @@ public class DefaultApiConfig: ApiConfig {
   /// - Parameters:
   ///   - decoder: The default decoder.
   ///   - interceptors: The interceptors that will be used.
-  init(decoder: JSONDecoder = .init(), interceptors: [ApiInterceptor] = []) {
+  public init(decoder: JSONDecoder = .init(), interceptors: [ApiInterceptor] = []) {
     self.decoder = decoder
     self.interceptors = interceptors
   }

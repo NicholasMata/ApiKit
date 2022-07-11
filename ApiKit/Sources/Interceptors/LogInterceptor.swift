@@ -17,8 +17,8 @@ public enum LogLevel {
 
 /// Used to log all requests and response from the API.
 open class LogInterceptor: ApiInterceptor {
-  var level: LogLevel
-  init(level: LogLevel = .info) {
+  public var level: LogLevel
+  public init(level: LogLevel = .info) {
     self.level = level
   }
 

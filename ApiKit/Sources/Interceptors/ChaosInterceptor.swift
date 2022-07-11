@@ -14,12 +14,8 @@ open class ChaosInterceptor: ApiInterceptor {
 
   /// Initial ChaosInterceptor
   /// - Parameter probability: The probability of Chaos from 0% - 100%. Where 100 means Chaos is guaranteed. Default is 20%.
-  init(probability: Int = 20) {
+  public init(probability: Int = 20) {
     self.probability = min(max(probability, 0), 100)
-  }
-
-  enum ChaosError: Error {
-    case monkeyingAround
   }
 
   public func api(_: Api,
@@ -39,8 +35,12 @@ open class ChaosInterceptor: ApiInterceptor {
   }
 }
 
-extension ChaosInterceptor.ChaosError: LocalizedError {
-  var errorDescription: String? {
+public enum ChaosError: Error {
+  case monkeyingAround
+}
+
+extension ChaosError: LocalizedError {
+  public var errorDescription: String? {
     switch self {
     case .monkeyingAround:
       return "🐒 was monkeying around."
