@@ -17,9 +17,7 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
 
   open var googleSignIn = GIDSignIn.sharedInstance
 
-  public enum GoogleAuthError: Error {
-    case unknown
-  }
+  public init() {}
 
   open func hasPreviousSignIn() -> Bool {
     return googleSignIn.hasPreviousSignIn()
@@ -43,4 +41,8 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
   open func token(for user: GIDGoogleUser?) -> String? {
     return user?.authentication.accessToken
   }
+}
+
+public enum GoogleAuthError: Error {
+  case unknown
 }
