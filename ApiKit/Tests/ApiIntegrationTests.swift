@@ -66,9 +66,9 @@ final class ApiTests: XCTestCase {
       }
     }
 
-    waitForExpectations(timeout: 10, handler: nil)
-
-    XCTAssertNotNil(expectedUsers)
+    waitForExpectations(timeout: 10) { _ in
+      XCTAssertNotNil(expectedUsers)
+    }
   }
 
   func testPostRequest() throws {
@@ -85,15 +85,15 @@ final class ApiTests: XCTestCase {
       }
     }
 
-    waitForExpectations(timeout: 10, handler: nil)
-
-    XCTAssertNotNil(expectedUser)
-    XCTAssertEqual(expectedUser!.id, 11)
-    XCTAssertEqual(expectedUser!.name, "Test")
+    waitForExpectations(timeout: 10) { _ in
+      XCTAssertNotNil(expectedUser)
+      XCTAssertEqual(expectedUser!.id, 11)
+      XCTAssertEqual(expectedUser!.name, "Test")
+    }
   }
 
   func testDownload() throws {
-    var expectation = self.expectation(description: "Download File")
+    var expectation = expectation(description: "Download File")
     var filePath: URL?
     let api = Api(config: DefaultApiConfig(interceptors: [ConnectivityInterceptor(), LogInterceptor()]))
     let request = HttpRequest.get("http://research.nhm.org/pdfs/10840/10840.pdf")
@@ -115,26 +115,26 @@ final class ApiTests: XCTestCase {
       }
     }
 
-    waitForExpectations(timeout: 10, handler: nil)
+    waitForExpectations(timeout: 20) { err in
+      observation?.invalidate()
 
-    observation?.invalidate()
+      XCTAssertNotNil(filePath)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: filePath!.path))
 
-    XCTAssertNotNil(filePath)
-    XCTAssertTrue(FileManager.default.fileExists(atPath: filePath!.path))
+      expectation = self.expectation(description: "Overwrite File")
 
-    expectation = self.expectation(description: "Overwrite File")
+      api.download(request, asFileName: "dummy.pdf", completion: { result in
+        if case let .success(url) = result {
+          filePath = url
+          expectation.fulfill()
+        }
+      })
 
-    api.download(request, asFileName: "dummy.pdf", completion: { result in
-      if case let .success(url) = result {
-        filePath = url
-        expectation.fulfill()
+      self.waitForExpectations(timeout: 10) { _ in
+        XCTAssertNotNil(filePath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: filePath!.path))
       }
-    })
-
-    waitForExpectations(timeout: 10, handler: nil)
-
-    XCTAssertNotNil(filePath)
-    XCTAssertTrue(FileManager.default.fileExists(atPath: filePath!.path))
+    }
   }
 
   @available(iOS 13.0, *)

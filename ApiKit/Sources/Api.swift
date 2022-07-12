@@ -18,6 +18,12 @@ open class Api {
   public let urlSession: URLSession
 
   private let semaphore = DispatchSemaphore(value: 1)
+  
+  private let operationQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = String(describing: Api.self)
+    return queue
+  }()
 
   /// Creates an instance of Api using an ApiConfig
   /// - Parameter config: The configuration information that the Api will use.
@@ -165,7 +171,7 @@ open class Api {
       return task
     }
 
-    urlSession.delegateQueue.addOperation(operation)
+    operationQueue.addOperation(operation)
     return operation
   }
 }

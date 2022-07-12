@@ -11,7 +11,7 @@ import Foundation
 open class OAuthInterceptor: ApiInterceptor {
   private let semaphore = DispatchSemaphore(value: 1)
   /// A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
-  public var onFailedToRenew: ((Error?) -> Void)? = nil
+  public var onFailedToRenew: ((Error?) -> Void)?
   private var provider: OAuthProvider
 
   private var workItem: DispatchWorkItem?
@@ -39,21 +39,19 @@ open class OAuthInterceptor: ApiInterceptor {
                   withId _: UUID,
                   onNewRequest: @escaping (URLRequest) -> Void)
   {
-    guard provider.hasPreviousSignIn()
-    else {
-      failedToRenew(with: nil)
+    guard provider.hasPreviousSignIn() else {
+      onNewRequest(request)
       return
     }
 
     semaphore.wait()
-    guard let token = provider.token
-    else {
+    guard let token = provider.token else {
       failedToRenew(with: nil)
       return
     }
-    let request = provider.modify(request: request, token: token)
+    let newRequest = provider.modify(request: request, token: token)
     semaphore.signal()
-    onNewRequest(request)
+    onNewRequest(newRequest)
   }
 
   public func api(_ api: Api,
