@@ -47,25 +47,29 @@ open class LogInterceptor: ApiInterceptor {
     """)
 
     var requestMessage = """
-    Method: \(request.httpMethod ?? "No Method")
-    URL: \(request.url?.absoluteString ?? "Unknown URL")
+    \(request.httpMethod ?? "No Method") \(request.url?.absoluteString ?? "Unknown URL")
     """
+    if let headers = request.allHTTPHeaderFields, !headers.isEmpty {
+      let headerString = headers.toReadableString()
+      requestMessage += "\n \n\(headerString)"
+    }
     if level == .verbose, let requestBody = request.httpBody, let requestBodyString = String(data: requestBody, encoding: .utf8) {
-      requestMessage += "\n\(requestBodyString)"
+      requestMessage += "\n \n\(requestBodyString)"
     }
     messages.append(requestMessage)
     var responseMessage = ""
     switch result {
     case let .success(response):
-      responseMessage += """
-      StatusCode: \(response.successful ? "✅" : "❗️") \(response.statusCode)
-      """
+      responseMessage += "StatusCode: \(response.successful ? "✅" : "❗️") \(response.statusCode)"
+      
+      if level == .verbose {
+        let headers = response.allHeaderFields
+        let headerString = headers.toReadableString()
+        responseMessage += "\n \n\(headerString)"
+      }
 
       if level == .verbose, let responseBodyString = String(data: response.data, encoding: .utf8) {
-        responseMessage += """
-
-        \(responseBodyString)
-        """
+        responseMessage += "\n \n\(responseBodyString)"
       }
     case let .failure(err):
       responseMessage += """
@@ -80,9 +84,10 @@ open class LogInterceptor: ApiInterceptor {
   }
 
   private func print(sections: [String], prefix _: String = "=", suffix _: String = "=", separator _: String = "-") {
+    let absoluteMaxLineCount = 100
     let maxLineCount = min(sections.reduce(into: []) { partialResult, section in
       partialResult.append(contentsOf: section.split(separator: "\n"))
-    }.max(by: { $1.count > $0.count })?.count ?? 1, 200)
+    }.max(by: { $1.count > $0.count })?.count ?? 1, absoluteMaxLineCount)
 
     var message = ""
     sections.enumerated().forEach { element in
@@ -91,8 +96,14 @@ open class LogInterceptor: ApiInterceptor {
       if element.offset == (sections.count - 1) {
         bottom = nil
       }
-      message += section.boxed(top: nil, bottom: bottom, largestLine: maxLineCount) + "\n"
+      message += section.boxed(top: nil, bottom: bottom, largestLine: min(maxLineCount, absoluteMaxLineCount-2)) + "\n"
     }
-    Swift.print(message.boxed())
+    Swift.print(message.boxed(largestLine: maxLineCount))
+  }
+}
+
+extension Dictionary {
+  func toReadableString() -> String {
+    return self.map { String(describing: $0.0) + ": " + String(describing: $0.1) }.joined(separator: "\n")
   }
 }

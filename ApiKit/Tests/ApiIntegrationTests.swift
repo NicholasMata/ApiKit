@@ -95,7 +95,7 @@ final class ApiTests: XCTestCase {
   func testDownload() throws {
     var expectation = expectation(description: "Download File")
     var filePath: URL?
-    let api = Api(config: DefaultApiConfig(interceptors: [ConnectivityInterceptor(), LogInterceptor()]))
+    let api = Api(config: DefaultApiConfig(interceptors: [ConnectivityInterceptor(), LogInterceptor(level: .verbose)]))
     let request = HttpRequest.get("http://research.nhm.org/pdfs/10840/10840.pdf")
 
     let task = api.download(request, asFileName: "dummy.pdf", completion: { result in
