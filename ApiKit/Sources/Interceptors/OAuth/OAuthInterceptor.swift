@@ -46,6 +46,7 @@ open class OAuthInterceptor: ApiInterceptor {
 
     semaphore.wait()
     guard let token = provider.token else {
+      semaphore.signal()
       failedToRenew(with: nil)
       return
     }
