@@ -25,7 +25,7 @@ open class LogInterceptor: ApiInterceptor {
   private var durations: [UUID: CFAbsoluteTime] = [:]
   private var semaphore = DispatchSemaphore(value: 1)
 
-  public func api(_: Api, modifyRequest request: URLRequest, withId identifier: UUID, onNewRequest: @escaping (URLRequest) -> Void) {
+  public func api(_: Api, modifyRequest request: URLRequest, withId identifier: UUID, onNewRequest: @escaping (URLRequest?) -> Void) {
     let now = CFAbsoluteTimeGetCurrent()
     semaphore.wait()
     durations[identifier] = now

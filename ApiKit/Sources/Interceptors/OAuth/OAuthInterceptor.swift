@@ -37,7 +37,7 @@ open class OAuthInterceptor: ApiInterceptor {
   public func api(_: Api,
                   modifyRequest request: URLRequest,
                   withId _: UUID,
-                  onNewRequest: @escaping (URLRequest) -> Void)
+                  onNewRequest: @escaping (URLRequest?) -> Void)
   {
     guard provider.hasPreviousSignIn() else {
       onNewRequest(request)
@@ -48,6 +48,7 @@ open class OAuthInterceptor: ApiInterceptor {
     guard let token = provider.token else {
       semaphore.signal()
       failedToRenew(with: nil)
+      onNewRequest(request)
       return
     }
     let newRequest = provider.modify(request: request, token: token)

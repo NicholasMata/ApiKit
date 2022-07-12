@@ -40,11 +40,11 @@ public protocol ApiInterceptor {
   ///   - api: The api that the request was sent to.
   ///   - request: The request to modify.
   ///   - identifier: An identifier representing the request.
-  ///   - onNewRequest: Should be called with the new/modified request or the original request if no change.
+  ///   - onNewRequest: Should be called with the new/modified request or the original request if no change. If nil then the request will be cancelled.
   func api(_ api: Api,
            modifyRequest request: URLRequest,
            withId identifier: UUID,
-           onNewRequest: @escaping (URLRequest) -> Void) -> Void
+           onNewRequest: @escaping (URLRequest?) -> Void) -> Void
 }
 
 public extension ApiInterceptor where Self: AnyObject {
@@ -60,7 +60,7 @@ public extension ApiInterceptor where Self: AnyObject {
   func api(_: Api,
            modifyRequest request: URLRequest,
            withId _: UUID,
-           onNewRequest: @escaping (URLRequest) -> Void)
+           onNewRequest: @escaping (URLRequest?) -> Void)
   {
     onNewRequest(request)
   }

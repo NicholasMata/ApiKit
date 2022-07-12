@@ -117,15 +117,7 @@ open class Api {
 
       var request = request
       let requestId = UUID()
-
-      for interceptor in self.config.interceptors {
-        self.semaphore.wait()
-        interceptor.api(self, modifyRequest: request, withId: requestId, onNewRequest: { newRequest in
-          request = newRequest
-          self.semaphore.signal()
-        })
-      }
-
+      
       let operationCompletion: HttpDataCompletion = { result in
         operation.finished()
         completion?(result)
@@ -152,6 +144,24 @@ open class Api {
           return
         }
         operationCompletion?(result)
+      }
+      
+      var cancelled = false
+      
+      for interceptor in self.config.interceptors {
+        guard !cancelled else {
+          return nil
+        }
+        self.semaphore.wait()
+        interceptor.api(self, modifyRequest: request, withId: requestId, onNewRequest: { newRequest in
+          if let newRequest = newRequest {
+            request = newRequest
+          } else {
+            cancelled = true
+            dataTaskCompletion?(.failure(ApiError.cancelled(request: request, id: requestId)))
+          }
+          self.semaphore.signal()
+        })
       }
 
       let wasIntercepted = self.executeInceptor {
