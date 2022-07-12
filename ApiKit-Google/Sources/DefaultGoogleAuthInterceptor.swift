@@ -8,7 +8,7 @@
 import ApiKit
 import Foundation
 
-public class DefaultGoogleAuthInterceptor: OAuthInterceptor {
+open class DefaultGoogleAuthInterceptor: OAuthInterceptor {
   public init(onFailedToRenew: ((Error?) -> Void)? = nil) {
     super.init(provider: DefaultGoogleAuthProvider(), onFailedToRenew: onFailedToRenew)
   }

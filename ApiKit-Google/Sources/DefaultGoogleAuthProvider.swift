@@ -11,51 +11,36 @@ import GoogleSignIn
 
 /// A default implementation of GoogleSignIn.
 open class DefaultGoogleAuthProvider: OAuthProvider {
-//    static let service = "token"
-//    static let account = "google.com"
-//    public var token: String? {
-//        set(newValue) {
-//            KeychainHelper.standard.save(token?.data(using: .utf8),
-//                                         service: DefaultGoogleAuthProvider.service,
-//                                         account: DefaultGoogleAuthProvider.account)
-//        }
-//        get {
-//            let data = KeychainHelper.standard.read(service: DefaultGoogleAuthProvider.service,
-//                                                    account: DefaultGoogleAuthProvider.account)
-//            guard let data = data else {
-//                return nil
-//            }
-//            return String(data: data, encoding: .utf8)
-//        }
-//    }
-
-  public var token: String? {
-    return GIDSignIn.sharedInstance.currentUser?.authentication.accessToken
+  open var token: String? {
+    return self.token(for: GIDSignIn.sharedInstance.currentUser)
   }
 
-  private var googleSignIn = GIDSignIn.sharedInstance
+  open var googleSignIn = GIDSignIn.sharedInstance
 
   public enum GoogleAuthError: Error {
     case unknown
   }
 
-  public func hasPreviousSignIn() -> Bool {
+  open func hasPreviousSignIn() -> Bool {
     return googleSignIn.hasPreviousSignIn()
   }
 
-  public func restorePreviousSignIn(completion: @escaping (Result<String, Error>) -> Void) {
+  open func restorePreviousSignIn(completion: @escaping (Result<String, Error>) -> Void) {
     googleSignIn.restorePreviousSignIn { user, error in
       guard error == nil else {
         completion(.failure(error!))
         return
       }
 
-      guard let user = user else {
+      guard let user = user, let token = self.token(for: user) else {
         completion(.failure(GoogleAuthError.unknown))
         return
       }
-//            self.token = user.authentication.accessToken
-      completion(.success(user.authentication.accessToken))
+      completion(.success(token))
     }
+  }
+
+  open func token(for user: GIDGoogleUser?) -> String? {
+    return user?.authentication.accessToken
   }
 }
