@@ -31,8 +31,8 @@ public extension OAuthProvider where Self: AnyObject {
   func modify(request: URLRequest, token: String) -> URLRequest {
     let bearerToken = "Bearer \(token)"
     var request = request
-    if var headers = request.allHTTPHeaderFields {
-      headers.updateValue(bearerToken, forKey: "Authorization")
+    if request.allHTTPHeaderFields != nil {
+      request.allHTTPHeaderFields?.updateValue(bearerToken, forKey: "Authorization")
     } else {
       request.allHTTPHeaderFields = ["Authorization": bearerToken]
     }
