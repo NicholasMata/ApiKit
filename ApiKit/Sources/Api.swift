@@ -87,6 +87,7 @@ open class Api {
     return { data, response, error in
       if let error = error {
         completion?(.failure(error))
+        return
       }
 
       guard let response = response as? HTTPURLResponse else {
