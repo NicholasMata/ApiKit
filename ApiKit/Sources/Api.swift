@@ -1,5 +1,6 @@
 import Foundation
 
+typealias RequiredHttpDataCompletion = (Result<HttpDataResponse, Error>) -> Void
 /// A callback that provides a Result which contains the decode body.
 public typealias ApiCompletion<T: Decodable> = ((Result<T, Error>) -> Void)?
 /// A callback that provides a Result which contains a RawHttpResponse with its raw body.
@@ -16,14 +17,8 @@ open class Api {
   public var config: ApiConfig
   /// The URLSession that is used when making network requests.
   public let urlSession: URLSession
-
-  private let semaphore = DispatchSemaphore(value: 1)
   
-  private let operationQueue: OperationQueue = {
-    let queue = OperationQueue()
-    queue.name = String(describing: Api.self)
-    return queue
-  }()
+  private var semaphoreByRequest:[UUID: DispatchSemaphore] = [:]
 
   /// Creates an instance of Api using an ApiConfig
   /// - Parameter config: The configuration information that the Api will use.
@@ -105,7 +100,7 @@ open class Api {
   ///   - completion: Called when the request was completed either successful or unsuccessfully.
   /// - Returns: An HttpOperation that can be used to cancel this operation.
   @discardableResult
-  public func send(_ request: URLRequest, completion: HttpDataCompletion) -> HttpOperation? {
+  public func send(_ request: URLRequest, completion: HttpDataCompletion) -> HttpOperation {
     return send(request,
                 taskBuilder: { interceptedRequest, completion in
                   self.urlSession.dataTask(with: interceptedRequest, completionHandler: self.transformToResult(completion))
@@ -113,18 +108,29 @@ open class Api {
                 completion: completion)
   }
 
-  private func send(_ request: URLRequest, taskBuilder: @escaping (URLRequest, HttpDataCompletion) -> URLSessionTask, completion: HttpDataCompletion) -> HttpOperation? {
+  private func send(_ request: URLRequest,
+                    taskBuilder: @escaping (URLRequest, HttpDataCompletion) -> URLSessionTask,
+                    completion: HttpDataCompletion) -> HttpOperation
+  {
     let operation = HttpOperation { operation in
-
       var request = request
       let requestId = UUID()
-      
-      let operationCompletion: HttpDataCompletion = { result in
+      let semaphore = DispatchSemaphore(value: 0)
+      semaphore.signal() // This is important as I want to increment it before start so I have one available
+      self.semaphoreByRequest.updateValue(semaphore, forKey: requestId)
+
+      // Called when you want to complete this function.
+      // Marks operation as finished and calls final completion.
+      let operationCompletion: RequiredHttpDataCompletion = { result in
+        self.semaphoreByRequest.removeValue(forKey: requestId)
+        if operation.isCancelled { return }
         operation.finished()
         completion?(result)
       }
 
-      let dataTaskCompletion: HttpDataCompletion = { result in
+      // Called when network request is completed.
+      // Calls response interceptors and handles bad status code.
+      let dataTaskCompletion: RequiredHttpDataCompletion = { result in
         let wasIntercepted = self.executeInceptor {
           $0.api(self,
                  didReceive: result,
@@ -140,30 +146,31 @@ open class Api {
         if case let .success(response) = result,
            !response.successful
         {
-          operationCompletion?(.failure(ApiError.badStatusCode(error: nil,
-                                                               response: response)))
+          operationCompletion(.failure(ApiError.badStatusCode(error: nil,
+                                                              response: response)))
           return
         }
-        operationCompletion?(result)
+        operationCompletion(result)
       }
-      
-      var cancelled = false
-      
-      for interceptor in self.config.interceptors {
-        guard !cancelled else {
+      let interceptors = self.config.interceptors
+
+      for interceptor in interceptors {
+        guard !operation.isCancelled else {
           return nil
         }
-        self.semaphore.wait()
+        semaphore.wait()
         interceptor.api(self, modifyRequest: request, withId: requestId, onNewRequest: { newRequest in
           if let newRequest = newRequest {
             request = newRequest
           } else {
-            cancelled = true
-            dataTaskCompletion?(.failure(ApiError.cancelled(request: request, id: requestId)))
+            operation.cancel()
+            dataTaskCompletion(.failure(ApiError.cancelled(request: request, id: requestId)))
           }
-          self.semaphore.signal()
+          semaphore.signal()
         })
       }
+
+      semaphore.wait()
 
       let wasIntercepted = self.executeInceptor {
         $0.api(self,
@@ -176,13 +183,17 @@ open class Api {
         return nil
       }
 
-      let task = taskBuilder(request, dataTaskCompletion)
+      let task = taskBuilder(request) { result in
+        self.config.responseQueue.addOperation {
+          dataTaskCompletion(result)
+        }
+      }
 
       task.resume()
       return task
     }
 
-    operationQueue.addOperation(operation)
+    config.requestQueue.addOperation(operation)
     return operation
   }
 }
@@ -268,8 +279,7 @@ public extension Api {
   ///   - completion: Called when the request was completed either successful or unsuccessfully.
   /// - Returns: An HttpOperation that can be used to cancel this operation.
   @discardableResult
-  func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: HttpCompletion<T>) -> HttpOperation?
-  {
+  func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: HttpCompletion<T>) -> HttpOperation? {
     let decoder = decoder ?? config.decoder
     return send(request) { (result: Result<HttpDataResponse, Error>) in
       switch result {
@@ -294,8 +304,7 @@ public extension Api {
   ///   - completion: Called when the request was completed either successful or unsuccessfully.
   /// - Returns: An HttpOperation that can be used to cancel this operation.
   @discardableResult
-  func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: ApiCompletion<T>) -> HttpOperation?
-  {
+  func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: ApiCompletion<T>) -> HttpOperation? {
     let decoder = decoder ?? config.decoder
     return send(request, decoder: decoder) { (result: Result<HttpResponse<T>, Error>) in
       switch result {
@@ -310,19 +319,17 @@ public extension Api {
 
 public extension Api {
   @discardableResult
-  static func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: ApiCompletion<T>) -> HttpOperation?
-  {
+  static func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: ApiCompletion<T>) -> HttpOperation? {
     return Api.default.send(request, decoder: decoder, completion: completion)
   }
 
   @discardableResult
-  static func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: HttpCompletion<T>) -> HttpOperation?
-  {
+  static func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: HttpCompletion<T>) -> HttpOperation? {
     return Api.default.send(request, decoder: decoder, completion: completion)
   }
 
   @discardableResult
-  static func send(_ request: URLRequest, completion: HttpDataCompletion) -> HttpOperation? {
+  static func send(_ request: URLRequest, completion: HttpDataCompletion) -> HttpOperation {
     return Api.default.send(request, completion: completion)
   }
 

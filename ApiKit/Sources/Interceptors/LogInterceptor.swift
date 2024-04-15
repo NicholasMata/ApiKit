@@ -46,6 +46,17 @@ open class LogInterceptor: ApiInterceptor {
     Took: \(now - start) seconds
     """)
 
+    let requestMessage = message(for: request)
+    messages.append(requestMessage)
+    let responseMessage = message(for: result)
+    messages.append(responseMessage)
+
+    print(sections: messages)
+
+    return false
+  }
+
+  public func message(for request: URLRequest) -> String {
     var requestMessage = """
     \(request.httpMethod ?? "No Method") \(request.url?.absoluteString ?? "Unknown URL")
     """
@@ -56,12 +67,15 @@ open class LogInterceptor: ApiInterceptor {
     if level == .verbose, let requestBody = request.httpBody, let requestBodyString = String(data: requestBody, encoding: .utf8) {
       requestMessage += "\n \n\(requestBodyString)"
     }
-    messages.append(requestMessage)
+    return requestMessage
+  }
+
+  public func message(for result: Result<HttpDataResponse, Error>) -> String {
     var responseMessage = ""
     switch result {
     case let .success(response):
       responseMessage += "StatusCode: \(response.successful ? "✅" : "❗️") \(response.statusCode)"
-      
+
       if level == .verbose {
         let headers = response.allHeaderFields
         let headerString = headers.toReadableString()
@@ -76,11 +90,8 @@ open class LogInterceptor: ApiInterceptor {
       Failed: "\(err.localizedDescription)"
       """
     }
-    messages.append(responseMessage)
 
-    print(sections: messages)
-
-    return false
+    return responseMessage
   }
 
   private func print(sections: [String], prefix _: String = "=", suffix _: String = "=", separator _: String = "-") {
@@ -96,7 +107,7 @@ open class LogInterceptor: ApiInterceptor {
       if element.offset == (sections.count - 1) {
         bottom = nil
       }
-      message += section.boxed(top: nil, bottom: bottom, largestLine: min(maxLineCount, absoluteMaxLineCount-2)) + "\n"
+      message += section.boxed(top: nil, bottom: bottom, largestLine: min(maxLineCount, absoluteMaxLineCount - 2)) + "\n"
     }
     Swift.print(message.boxed(largestLine: maxLineCount))
   }
@@ -104,6 +115,6 @@ open class LogInterceptor: ApiInterceptor {
 
 extension Dictionary {
   func toReadableString() -> String {
-    return self.map { String(describing: $0.0) + ": " + String(describing: $0.1) }.joined(separator: "\n")
+    return map { String(describing: $0.0) + ": " + String(describing: $0.1) }.joined(separator: "\n")
   }
 }

@@ -81,6 +81,20 @@
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "ApiKit-OAuth"
+               BuildableName = "ApiKit-OAuth"
+               BlueprintName = "ApiKit-OAuth"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -106,6 +120,16 @@
                BlueprintIdentifier = "ApiKitTests"
                BuildableName = "ApiKitTests"
                BlueprintName = "ApiKitTests"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "ApiKit-OAuthTests"
+               BuildableName = "ApiKit-OAuthTests"
+               BlueprintName = "ApiKit-OAuthTests"
                ReferencedContainer = "container:">
             </BuildableReference>
          </TestableReference>

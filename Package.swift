@@ -16,6 +16,10 @@ let package = Package(
       name: "ApiKit-Google",
       targets: ["ApiKit-Google"]
     ),
+    .library(
+      name: "ApiKit-OAuth",
+      targets: ["ApiKit-OAuth"]
+    ),
   ],
   dependencies: [
     // Dependencies declare other packages that this package depends on.
@@ -35,13 +39,23 @@ let package = Package(
       path: "ApiKit/Tests"
     ),
     .target(
+      name: "ApiKit-OAuth",
+      dependencies: ["ApiKit"],
+      path: "ApiKit-OAuth/Sources"
+    ),
+    .testTarget(
+      name: "ApiKit-OAuthTests",
+      dependencies: ["ApiKit", "ApiKit-OAuth"],
+      path: "ApiKit-OAuth/Tests"
+    ),
+    .target(
       name: "ApiKit-Google",
-      dependencies: ["ApiKit", .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS")],
+      dependencies: ["ApiKit", "ApiKit-OAuth", .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS")],
       path: "ApiKit-Google/Sources"
     ),
     .testTarget(
       name: "ApiKit-GoogleTests",
-      dependencies: ["ApiKit", "ApiKit-Google"],
+      dependencies: ["ApiKit", "ApiKit-OAuth", "ApiKit-Google"],
       path: "ApiKit-Google/Tests"
     ),
   ]

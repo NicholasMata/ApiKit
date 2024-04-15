@@ -7,11 +7,11 @@
 
 import Foundation
 
-private final class KeychainHelper {
+public final class KeychainHelper {
    public static let standard = KeychainHelper()
   private init() {}
 
-  public func save(_ data: Data, service: String, account: String) {
+  public func save(_ data: Data, forService service: String, account: String) -> Bool {
     let query = [
       kSecValueData: data,
       kSecAttrService: service,
@@ -33,8 +33,9 @@ private final class KeychainHelper {
       let attributesToUpdate = [kSecValueData: data] as CFDictionary
 
       // Update existing item
-      SecItemUpdate(query, attributesToUpdate)
+      let status = SecItemUpdate(query, attributesToUpdate)
     }
+    return status == errSecSuccess
   }
 
   public func read(service: String, account: String) -> Data? {
@@ -51,7 +52,7 @@ private final class KeychainHelper {
     return (result as? Data)
   }
 
-  public func delete(service: String, account: String) {
+  public func delete(service: String, account: String) -> Bool {
     let query = [
       kSecAttrService: service,
       kSecAttrAccount: account,
@@ -59,14 +60,15 @@ private final class KeychainHelper {
     ] as CFDictionary
 
     // Delete item from keychain
-    SecItemDelete(query)
+    let status = SecItemDelete(query)
+    return status == errSecSuccess
   }
 }
 
 private extension KeychainHelper {
   func save(_ data: Data?, service: String, account: String) {
     guard let data = data else {
-      delete(service: service, account: account)
+      _ = delete(service: service, account: account)
       return
     }
     save(data, service: service, account: account)

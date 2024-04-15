@@ -17,7 +17,7 @@ public class HttpOperation: Operation {
   public var onUrlSessionTask: ((URLSessionTask) -> Void)? = nil
 
   override public var isAsynchronous: Bool {
-    return true
+    return false
   }
 
   private var _isExecuting: Bool = false

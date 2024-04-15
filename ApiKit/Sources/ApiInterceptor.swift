@@ -47,6 +47,7 @@ public protocol ApiInterceptor {
            onNewRequest: @escaping (URLRequest?) -> Void) -> Void
 }
 
+/// Extension so that you don't need to implement all methods of ApiInterceptor if you dont want to.
 public extension ApiInterceptor where Self: AnyObject {
   func api(_: Api,
            didReceive _: Result<HttpDataResponse, Error>,

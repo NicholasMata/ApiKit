@@ -6,6 +6,7 @@
 //
 
 import ApiKit
+import ApiKit_OAuth
 import Foundation
 
 open class DefaultGoogleAuthInterceptor: OAuthInterceptor {

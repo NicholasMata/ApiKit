@@ -5,7 +5,13 @@
 //  Created by Nicholas Mata on 6/14/22.
 //
 
+import ApiKit
 import Foundation
+
+enum OAuthError: Error {
+  case failedToRenew
+  case noToken
+}
 
 /// Used to add OAuth access token to request for authentication / authorization.
 open class OAuthInterceptor: ApiInterceptor {
@@ -34,60 +40,36 @@ open class OAuthInterceptor: ApiInterceptor {
     self.workItem = workItem
   }
 
-  public func api(_: Api,
+  public func api(_ api: Api,
                   modifyRequest request: URLRequest,
                   withId _: UUID,
                   onNewRequest: @escaping (URLRequest?) -> Void)
   {
-    guard provider.hasPreviousSignIn() else {
-      onNewRequest(request)
+    semaphore.wait()
+    let tokenState = provider.tokenState
+    guard tokenState == TokenState.expired else {
+      self.semaphore.signal()
+      if case let .valid(token) = tokenState {
+        let newRequest = provider.attach(token: token, to: request)
+        onNewRequest(newRequest)
+      } else {
+        onNewRequest(nil)
+        self.failedToRenew(with: OAuthError.noToken)
+      }
       return
     }
 
-    semaphore.wait()
-    guard let token = provider.token else {
-      semaphore.signal()
-      failedToRenew(with: nil)
-      onNewRequest(request)
-      return
-    }
-    let newRequest = provider.modify(request: request, token: token)
-    semaphore.signal()
-    onNewRequest(newRequest)
-  }
-
-  public func api(_ api: Api,
-                  didReceive result: Result<HttpDataResponse, Error>,
-                  withId _: UUID,
-                  for request: URLRequest,
-                  completion: HttpDataCompletion) -> Bool
-  {
-    guard case let .success(response) = result,
-          response.statusCode == 401
-    else {
-      return false
-    }
-
-    semaphore.wait()
-
-    guard provider.hasPreviousSignIn()
-    else {
-      semaphore.signal()
-      failedToRenew(with: nil)
-      return true
-    }
-
-    provider.restorePreviousSignIn { result in
+    provider.refreshToken { result in
       switch result {
-      case let .success(newToken):
+      case let .success(token):
+        let newRequest = self.provider.attach(token: token, to: request)
         self.semaphore.signal()
-        let newRequest = self.provider.modify(request: request, token: newToken)
-        _ = api.send(newRequest, completion: completion)
-      case let .failure(err):
+        onNewRequest(newRequest)
+      case let .failure(error):
         self.semaphore.signal()
-        self.failedToRenew(with: err)
+        onNewRequest(nil)
+        self.failedToRenew(with: error)
       }
     }
-    return true
   }
 }
