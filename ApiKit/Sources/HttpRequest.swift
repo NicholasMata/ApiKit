@@ -122,13 +122,13 @@ public extension HttpRequest {
   convenience init<T: Encodable>(url: String, method: HttpMethod,
                                  headers: [String: String] = [:],
                                  body: T? = nil,
-                                 encoder _: DataEncoder = JSONEncoder(),
-                                 contentType _: String = "application/json") throws
+                                 encoder: DataEncoder = JSONEncoder(),
+                                 contentType: String = "application/json") throws
   {
     guard let url = URL(string: url) else {
       fatalError("Invalid URL")
     }
-    try self.init(url: url, method: method, headers: headers, body: body)
+    try self.init(url: url, method: method, headers: headers, body: body, encoder: encoder, contentType: contentType)
   }
 
   convenience init<T: Encodable>(host: String,
@@ -136,10 +136,10 @@ public extension HttpRequest {
                                  method: HttpMethod,
                                  headers: [String: String] = [:],
                                  body: T? = nil,
-                                 encoder _: DataEncoder = JSONEncoder(),
-                                 contentType _: String = "application/json") throws
+                                 encoder: DataEncoder = JSONEncoder(),
+                                 contentType: String = "application/json") throws
   {
-    try self.init(url: "\(host)\(path)", method: method, headers: headers, body: body)
+    try self.init(url: "\(host)\(path)", method: method, headers: headers, body: body, encoder: encoder, contentType: contentType)
   }
 
   convenience init<T: Encodable>(endpoint: EndpointInfo,
@@ -147,10 +147,10 @@ public extension HttpRequest {
                                  method: HttpMethod,
                                  headers: [String: String] = [:],
                                  body: T? = nil,
-                                 encoder _: DataEncoder = JSONEncoder(),
-                                 contentType _: String = "application/json") throws
+                                 encoder: DataEncoder = JSONEncoder(),
+                                 contentType: String = "application/json") throws
   {
-    try self.init(host: endpoint.url, path: path, method: method, headers: HttpRequest.combining(headers, endpoint.headers), body: body)
+    try self.init(host: endpoint.url, path: path, method: method, headers: HttpRequest.combining(headers, endpoint.headers), body: body, encoder: encoder, contentType: contentType)
   }
 
   static func post(endpoint: EndpointInfo, path: String, rawBody: Data? = nil, headers: [String: String] = [:]) -> HttpRequest {
