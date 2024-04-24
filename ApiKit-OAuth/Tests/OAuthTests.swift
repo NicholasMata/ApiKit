@@ -29,7 +29,7 @@ public class DummyProvider: OAuthTokenManagedProvider {
 
   public func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
     do {
-      Thread.sleep(forTimeInterval: 5)
+      Thread.sleep(forTimeInterval: 1)
       let loginBody = DummyLoginInfo(username: "kminchelle", password: "0lelplR", expiresInMins: 60)
       try Api.send(.post("https://dummyjson.com/auth/login", body: loginBody)) { (result: Result<DummyLoginResponse, Error>) in
         switch result {
@@ -55,32 +55,33 @@ final class ApiKitOAuthTests: XCTestCase {
     let interceptors: [ApiInterceptor] = [ConnectivityInterceptor(), OAuthInterceptor(provider: provider)]
     let config = DefaultApiConfig(interceptors: interceptors)
     let api = Api(config: config)
-    let expectation = self.expectation(description: "RequestSent")
+    let p1Expectation = self.expectation(description: "Product1")
 
     var product: DummyProduct? = nil
-    var product2: DummyProduct? = nil
 
     api.send(.get("https://dummyjson.com/auth/products/1")) { (result: Result<DummyProduct, Error>) in
       switch result {
       case let .success(response):
         product = response
-        if product != nil && product2 != nil { expectation.fulfill() }
+        p1Expectation.fulfill()
       case .failure:
         XCTAssert(false)
       }
     }
 
+    let p2Expectation = self.expectation(description: "Product2")
+    var product2: DummyProduct? = nil
     api.send(.get("https://dummyjson.com/auth/products/2")) { (result: Result<DummyProduct, Error>) in
       switch result {
       case let .success(response):
         product2 = response
-        if product != nil && product2 != nil { expectation.fulfill() }
+        p2Expectation.fulfill()
       case .failure:
         XCTAssert(false)
       }
     }
 
-    waitForExpectations(timeout: 15) { _ in
+    waitForExpectations(timeout: 1.5) { _ in
       XCTAssertNotNil(product)
       XCTAssertEqual(product!.id, 1)
 

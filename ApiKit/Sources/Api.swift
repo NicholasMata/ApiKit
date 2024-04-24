@@ -17,8 +17,6 @@ open class Api {
   public var config: ApiConfig
   /// The URLSession that is used when making network requests.
   public let urlSession: URLSession
-  
-  private var semaphoreByRequest:[UUID: DispatchSemaphore] = [:]
 
   /// Creates an instance of Api using an ApiConfig
   /// - Parameter config: The configuration information that the Api will use.
@@ -117,12 +115,12 @@ open class Api {
       let requestId = UUID()
       let semaphore = DispatchSemaphore(value: 0)
       semaphore.signal() // This is important as I want to increment it before start so I have one available
-      self.semaphoreByRequest.updateValue(semaphore, forKey: requestId)
+      operation.semaphore = semaphore
 
       // Called when you want to complete this function.
       // Marks operation as finished and calls final completion.
       let operationCompletion: RequiredHttpDataCompletion = { result in
-        self.semaphoreByRequest.removeValue(forKey: requestId)
+        operation.semaphore = nil
         if operation.isCancelled { return }
         operation.finished()
         completion?(result)
@@ -152,6 +150,7 @@ open class Api {
         }
         operationCompletion(result)
       }
+
       let interceptors = self.config.interceptors
 
       for interceptor in interceptors {
@@ -243,7 +242,7 @@ public extension Api {
   ///   - method: The HTTP method that will be used.
   ///   - headers: The headers to include if any.
   /// - Returns: A URLRequest that can be sent via Api
-  func request(endpoint: EndpointInfo, path: String, method: HttpMethod, headers: [String: String] = [:], requireJsonResponse _: Bool = true) -> URLRequest {
+  func request(endpoint: EndpointInfo, path: String, method: HttpMethod, headers: [String: String] = [:]) -> URLRequest {
     return request(host: endpoint.url,
                    path: path,
                    method: method,

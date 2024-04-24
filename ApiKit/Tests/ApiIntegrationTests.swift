@@ -71,6 +71,39 @@ final class ApiTests: XCTestCase {
     }
   }
 
+  func testMultipleRequests() throws {
+    let expectation = self.expectation(description: "Users")
+    var expectedUsers: [User]?
+
+    api.getAllUsers { result in
+      switch result {
+      case let .success(users):
+        expectedUsers = users
+        expectation.fulfill()
+      case .failure:
+        break
+      }
+    }
+    
+    let nextExpectation = self.expectation(description: "NextUsers")
+    var nextExpectedUsers: [User]?
+
+    api.getAllUsers { result in
+      switch result {
+      case let .success(users):
+        nextExpectedUsers = users
+        nextExpectation.fulfill()
+      case .failure:
+        break
+      }
+    }
+
+    waitForExpectations(timeout: 10) { _ in
+      XCTAssertNotNil(expectedUsers)
+      XCTAssertNotNil(nextExpectedUsers)
+    }
+  }
+
   func testPostRequest() throws {
     let expectation = self.expectation(description: "Users")
     var expectedUser: User?
@@ -108,14 +141,13 @@ final class ApiTests: XCTestCase {
     var observation: NSKeyValueObservation?
     task?.onUrlSessionTask = { urlSessionTask in
       observation = urlSessionTask.progress.observe(\.fractionCompleted) { progress, _ in
-        print("Observing fractionCompleted")
         if !progress.isIndeterminate {
           print(progress.fractionCompleted)
         }
       }
     }
 
-    waitForExpectations(timeout: 20) { err in
+    waitForExpectations(timeout: 20) { _ in
       observation?.invalidate()
 
       XCTAssertNotNil(filePath)
