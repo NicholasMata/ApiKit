@@ -8,7 +8,7 @@
 import ApiKit
 import Foundation
 
-enum OAuthError: Error {
+public enum OAuthError: Error {
   case failedToRenew
   case noToken
 }

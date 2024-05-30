@@ -8,10 +8,7 @@
 import Foundation
 
 public final class KeychainHelper {
-   public static let standard = KeychainHelper()
-  private init() {}
-
-  public func save(_ data: Data, forService service: String, account: String) -> Bool {
+  public static func save(_ data: Data, forService service: String, account: String) -> Bool {
     let query = [
       kSecValueData: data,
       kSecAttrService: service,
@@ -20,7 +17,7 @@ public final class KeychainHelper {
     ] as CFDictionary
 
     // Add data in query to keychain
-    let status = SecItemAdd(query, nil)
+    var status = SecItemAdd(query, nil)
 
     if status == errSecDuplicateItem {
       // Item already exist, thus update it.
@@ -33,12 +30,13 @@ public final class KeychainHelper {
       let attributesToUpdate = [kSecValueData: data] as CFDictionary
 
       // Update existing item
-      let status = SecItemUpdate(query, attributesToUpdate)
+      status = SecItemUpdate(query, attributesToUpdate)
     }
+
     return status == errSecSuccess
   }
 
-  public func read(service: String, account: String) -> Data? {
+  public static func read(service: String, account: String) -> Data? {
     let query = [
       kSecAttrService: service,
       kSecAttrAccount: account,
@@ -52,7 +50,7 @@ public final class KeychainHelper {
     return (result as? Data)
   }
 
-  public func delete(service: String, account: String) -> Bool {
+  public static func delete(service: String, account: String) -> Bool {
     let query = [
       kSecAttrService: service,
       kSecAttrAccount: account,
@@ -66,7 +64,7 @@ public final class KeychainHelper {
 }
 
 private extension KeychainHelper {
-  func save(_ data: Data?, service: String, account: String) {
+  static func save(_ data: Data?, service: String, account: String) {
     guard let data = data else {
       _ = delete(service: service, account: account)
       return
@@ -76,7 +74,7 @@ private extension KeychainHelper {
 }
 
 private extension KeychainHelper {
-  func save<T>(_ item: T, service: String, account: String) where T: Codable {
+  static func save<T>(_ item: T, service: String, account: String) where T: Codable {
     do {
       // Encode as JSON data and save in keychain
       let data = try JSONEncoder().encode(item)
@@ -87,7 +85,7 @@ private extension KeychainHelper {
     }
   }
 
-  func read<T>(service: String, account: String, type: T.Type) -> T? where T: Codable {
+  static func read<T>(service: String, account: String, type: T.Type) -> T? where T: Codable {
     // Read item data from keychain
     guard let data = read(service: service, account: account) else {
       return nil

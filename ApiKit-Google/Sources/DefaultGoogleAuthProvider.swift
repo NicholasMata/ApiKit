@@ -15,24 +15,21 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
   open var googleSignIn = GIDSignIn.sharedInstance
 
   public init() {}
-  
+
   public var tokenState: TokenState {
-    get {
       guard let currentUser = googleSignIn.currentUser else {
         return TokenState.missing
       }
       let expiration = currentUser.authentication.accessTokenExpirationDate
-      guard expiration <= Date() else {
+      guard Date() <= expiration, let token = token(for: currentUser) else {
         return TokenState.expired
       }
-      return TokenState.valid(token: token(for: currentUser))
+      return TokenState.valid(token: token)
     }
-  }
 
-  open func token(for user: GIDGoogleUser) -> String {
+  open func token(for user: GIDGoogleUser) -> String? {
     return user.authentication.accessToken
   }
-
 
   public func refreshToken(completion: @escaping (Result<String, any Error>) -> Void) {
     googleSignIn.restorePreviousSignIn { user, error in
@@ -46,7 +43,11 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
         return
       }
 
-      let token = self.token(for: user)
+      guard let token = self.token(for: user) else {
+        completion(.failure(OAuthError.noToken))
+        return
+      }
+
       completion(.success(token))
     }
   }

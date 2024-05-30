@@ -42,7 +42,7 @@ public class OIDCTokenManager: TokenManager {
 
     public init(account: String) {
         self.account = account
-      if let idTokenData = KeychainHelper.standard.read(service: "id_token", account: account) {
+      if let idTokenData = KeychainHelper.read(service: "id_token", account: account) {
             idToken = String(data: idTokenData, encoding: .utf8)
         }
         refreshToken = OIDCTokenManager.token(with: "refresh_token", for: account)
@@ -77,25 +77,25 @@ public class OIDCTokenManager: TokenManager {
             return
         }
         if let idTokenData = idToken.data(using: .utf8) {
-          _ = KeychainHelper.standard.save(idTokenData, forService: "id_token", account: account)
+          _ = KeychainHelper.save(idTokenData, forService: "id_token", account: account)
         }
     }
 
     private static func store(token: Token?, with tokenName: String, for account: String) {
         guard let token = token else {
-          if KeychainHelper.standard.delete(service: tokenName, account: account) {
-                UserDefaults.standard.removeObject(forKey: "\(account):\(tokenName):\(expiresInKey)")
-                UserDefaults.standard.removeObject(forKey: "\(account):\(tokenName):\(retrievedOnKey)")
-            }
-            return
+          if KeychainHelper.delete(service: tokenName, account: account) {
+            UserDefaults.standard.removeObject(forKey: "\(account):\(tokenName):\(expiresInKey)")
+            UserDefaults.standard.removeObject(forKey: "\(account):\(tokenName):\(retrievedOnKey)")
+          }
+          return
         }
         guard let tokenData = token.token.data(using: .utf8) else {
             return
         }
-      let saved = KeychainHelper.standard.save(tokenData, forService: tokenName, account: account)
+      let saved = KeychainHelper.save(tokenData, forService: tokenName, account: account)
         if saved {
-            UserDefaults.standard.set(token.expiresIn, forKey: "\(account):\(tokenName):\(expiresInKey)")
-            UserDefaults.standard.set(token.retrievedOn.timeIntervalSince1970, forKey: "\(account):\(tokenName):\(retrievedOnKey)")
+          UserDefaults.standard.set(token.expiresIn, forKey: "\(account):\(tokenName):\(expiresInKey)")
+          UserDefaults.standard.set(token.retrievedOn.timeIntervalSince1970, forKey: "\(account):\(tokenName):\(retrievedOnKey)")
         }
     }
 
@@ -103,7 +103,7 @@ public class OIDCTokenManager: TokenManager {
         let expiresIn = UserDefaults.standard.integer(forKey: "\(account):\(tokenName):\(expiresInKey)")
         let retrievedOn = UserDefaults.standard.double(forKey: "\(account):\(tokenName):\(retrievedOnKey)")
 
-      if let tokenData = KeychainHelper.standard.read(service: tokenName, account: account),
+      if let tokenData = KeychainHelper.read(service: tokenName, account: account),
            let tokenValue = String(data: tokenData, encoding: .utf8),
            expiresIn > 0,
            retrievedOn > 0
