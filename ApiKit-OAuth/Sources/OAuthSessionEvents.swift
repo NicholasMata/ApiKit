@@ -3,6 +3,8 @@ import Foundation
 public enum OAuthSessionEvent: Hashable {
   /// The provider ended its local authentication session.
   case signOut
+  /// New login credentials replaced the previous authentication session.
+  case sessionStarted
 }
 
 /// Optional session notifications supported by `OAuthInterceptor`.

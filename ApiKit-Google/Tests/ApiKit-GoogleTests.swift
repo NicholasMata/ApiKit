@@ -10,86 +10,187 @@ final class ApiKitGoogleTests: XCTestCase {
   }
 
   func testMissingCurrentUserHasMissingTokenState() {
-    let signIn = StubSignIn()
-    let provider = DefaultGoogleAuthProvider(client: signIn)
+    let client = TestGoogleClient()
+    let provider = DefaultGoogleAuthProvider(client: client)
     XCTAssertEqual(provider.tokenState, .missing)
-    XCTAssertEqual(signIn.restoreCount, 0)
-  }
-
-  func testRefreshRestoresPreviousSignInAndReturnsToken() {
-    let signIn = StubSignIn()
-    signIn.restoredUser = StubGoogleUser()
-    let provider = DefaultGoogleAuthProvider(client: signIn)
-    var calls = 0
-    provider.refreshToken { result in
-      XCTAssertEqual(try? result.get(), "fixture-access-token")
-      calls += 1
-    }
-    XCTAssertEqual(signIn.restoreCount, 1)
-    XCTAssertEqual(calls, 1)
-  }
-
-  func testRefreshForwardsRestorationError() {
-    let signIn = StubSignIn()
-    signIn.restorationError = URLError(.timedOut)
-    let provider = DefaultGoogleAuthProvider(client: signIn)
-    var calls = 0
-    provider.refreshToken { result in
-      guard case let .failure(error) = result else { return XCTFail("Expected timeout") }
-      XCTAssertEqual((error as? URLError)?.code, .timedOut)
-      calls += 1
-    }
-    XCTAssertEqual(calls, 1)
-  }
-
-  func testRestorationWithoutUserReportsUnknownError() {
-    let provider = DefaultGoogleAuthProvider(client: StubSignIn())
-    var calls = 0
-    provider.refreshToken { result in
-      if case .failure(GoogleAuthError.unknown) = result {} else { XCTFail("Expected unknown error") }
-      calls += 1
-    }
-    XCTAssertEqual(calls, 1)
-  }
-
-  func testMissingTokenReportsNoToken() {
-    let signIn = StubSignIn()
-    signIn.restoredUser = StubGoogleUser()
-    let provider = MissingTokenProvider(client: signIn)
-    XCTAssertEqual(provider.tokenState, .expired)
-    var calls = 0
-    provider.refreshToken { result in
-      if case .failure(OAuthError.noToken) = result {} else { XCTFail("Expected missing token") }
-      calls += 1
-    }
-    XCTAssertEqual(calls, 1)
+    XCTAssertTrue(client.refreshedUsers.isEmpty)
   }
 
   func testCurrentUserTokenStateReflectsExpiration() {
-    let signIn = StubSignIn()
+    let client = TestGoogleClient()
     let user = StubGoogleUser()
-    signIn.restoredUser = user
-    let provider = DefaultGoogleAuthProvider(client: signIn)
+    client.currentUser = user
+    let provider = DefaultGoogleAuthProvider(client: client)
     XCTAssertEqual(provider.tokenState, .valid(token: "fixture-access-token"))
     user.credentials.expiration = Date.distantPast
     XCTAssertEqual(provider.tokenState, .expired)
   }
-}
 
-private final class MissingTokenProvider: DefaultGoogleAuthProvider {
-  override func token(for _: GIDGoogleUser) -> String? { nil }
-}
-
-private final class StubSignIn: GoogleSignInClient {
-  var restoredUser: GIDGoogleUser?
-  var restorationError: Error?
-  private(set) var restoreCount = 0
-  var currentUser: GIDGoogleUser? { restoredUser }
-  func restorePreviousSignIn(callback: GIDSignInCallback? = nil) {
-    restoreCount += 1
-    callback?(restoredUser, restorationError)
+  func testCurrentUserWithoutTokenHasExpiredTokenState() {
+    let client = TestGoogleClient()
+    client.currentUser = StubGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    provider.providedToken = nil
+    XCTAssertEqual(provider.tokenState, .expired)
   }
-  func signOut() { restoredUser = nil }
+
+  func testSessionChangeDuringTokenStateReadRejectsToken() {
+    let client = TestGoogleClient()
+    client.currentUser = StubGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    provider.onToken = { [weak provider] in provider?.signOut() }
+    XCTAssertEqual(provider.tokenState, .missing)
+    XCTAssertNil(client.currentUser)
+  }
+
+  func testRefreshUsesExistingUserAndCompletesOnce() {
+    let client = TestGoogleClient()
+    let user = GIDGoogleUser()
+    client.currentUser = user
+    let provider = TestGoogleProvider(client: client)
+    var count = 0
+    provider.refreshToken { result in
+      XCTAssertEqual(try? result.get(), "fresh-token")
+      count += 1
+    }
+    XCTAssertTrue(client.refreshedUsers.first === user)
+    client.finish(0)
+    client.finish(0)
+    XCTAssertEqual(count, 1)
+  }
+
+  func testSignOutCancelsRefreshAndLateCallbackCannotRestoreSession() {
+    let client = TestGoogleClient()
+    client.currentUser = GIDGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    var completions = 0
+    var events = 0
+    let subscription = provider.subscribe(.signOut) { events += 1 }
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
+      completions += 1
+    }
+    provider.signOut()
+    XCTAssertNil(client.currentUser)
+    XCTAssertEqual(completions, 1)
+    XCTAssertEqual(events, 1)
+    client.finish(0)
+    XCTAssertNil(client.currentUser)
+    XCTAssertEqual(client.signOutCount, 1)
+    XCTAssertEqual(completions, 1)
+    withExtendedLifetime(subscription) {}
+  }
+
+  func testOldRefreshDoesNotAffectNewGoogleUser() {
+    let client = TestGoogleClient()
+    client.currentUser = GIDGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
+    }
+    provider.signOut()
+    let newUser = GIDGoogleUser()
+    client.currentUser = newUser
+    var token: String?
+    provider.refreshToken { token = try? $0.get() }
+    client.finish(0)
+    XCTAssertNil(token)
+    XCTAssertTrue(client.currentUser === newUser)
+    client.finish(1)
+    XCTAssertEqual(token, "fresh-token")
+    XCTAssertTrue(client.currentUser === newUser)
+    XCTAssertEqual(client.signOutCount, 1)
+  }
+
+  func testAccountChangeRejectsOldRefreshEvenWithoutProviderSignOut() {
+    let client = TestGoogleClient()
+    client.currentUser = GIDGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    var count = 0
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
+      count += 1
+    }
+    client.currentUser = GIDGoogleUser()
+    client.finish(0)
+    XCTAssertEqual(count, 1)
+  }
+
+  func testMissingUserDoesNotAttemptRestoration() {
+    let client = TestGoogleClient()
+    let provider = TestGoogleProvider(client: client)
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.noToken) = result else { return XCTFail("Expected missing token") }
+    }
+    XCTAssertTrue(client.refreshedUsers.isEmpty)
+  }
+
+  func testRefreshErrorIsForwardedUnchanged() {
+    let client = TestGoogleClient()
+    client.currentUser = GIDGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    provider.refreshToken { result in
+      guard case let .failure(error) = result else { return XCTFail("Expected timeout") }
+      XCTAssertEqual((error as? URLError)?.code, .timedOut)
+    }
+    client.finish(0, error: URLError(.timedOut))
+  }
+
+  func testMissingAccessTokenReportsNoToken() {
+    let client = TestGoogleClient()
+    client.currentUser = GIDGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    provider.providedToken = nil
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.noToken) = result else { return XCTFail("Expected missing token") }
+    }
+    client.finish(0)
+  }
+
+  func testSignOutDuringTokenExtractionRejectsResult() {
+    let client = TestGoogleClient()
+    client.currentUser = GIDGoogleUser()
+    let provider = TestGoogleProvider(client: client)
+    provider.onToken = { [weak provider] in provider?.signOut() }
+    var count = 0
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
+      count += 1
+    }
+    client.finish(0)
+    XCTAssertEqual(count, 1)
+    XCTAssertNil(client.currentUser)
+  }
+}
+
+private final class TestGoogleProvider: DefaultGoogleAuthProvider {
+  var providedToken: String? = "fresh-token"
+  var onToken: (() -> Void)?
+  override func token(for _: GIDGoogleUser) -> String? {
+    onToken?()
+    return providedToken
+  }
+}
+
+private final class TestGoogleClient: GoogleOAuthClient {
+  var currentUser: GIDGoogleUser?
+  var refreshedUsers: [GIDGoogleUser] = []
+  private var callbacks: [(Error?) -> Void] = []
+  private(set) var signOutCount = 0
+
+  func refreshTokens(for user: GIDGoogleUser, completion: @escaping (Error?) -> Void) {
+    refreshedUsers.append(user)
+    callbacks.append(completion)
+  }
+
+  func finish(_ index: Int, error: Error? = nil) {
+    callbacks[index](error)
+  }
+
+  func signOut() {
+    currentUser = nil
+    signOutCount += 1
+  }
 }
 
 private final class StubGoogleUser: GIDGoogleUser {

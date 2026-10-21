@@ -67,28 +67,74 @@ providers. `OAuthTokenManagedProvider` implementations must also supply it; a to
 manager's `clear()` alone is insufficient if it is asynchronous or a refresh can
 subsequently write credentials again.
 
-For the recommended implementation, subclass `SessionOAuthProvider<Credentials>`,
-where `Credentials` is your decoded token response. Override:
+For the recommended implementation, conform to `SessionOAuthProvider`. Supply one
+stored `OAuthSessionCoordinator` and implement the credential hooks. The compiler
+requires every hook; no base class, initializer closures, or runtime traps are needed:
 
-- `readTokenState()` to read stored credentials and expiration.
-- `fetchCredentials(completion:)` to fetch the token response without storing it.
-- `accessToken(from:)` to extract the access token.
-- `storeCredentials(_:)` to store the response synchronously.
-- `clearCredentials()` to clear credentials synchronously.
+```swift
+// MyTokenResponse, MyTokenStore, and MyTokenService are application-defined types.
+final class MyOAuthProvider: SessionOAuthProvider {
+    typealias Credentials = MyTokenResponse
 
-The base class coordinates storage with logout, rejects stale or duplicate refresh
-responses, and shares concurrent refreshes. Network fetching runs outside its
-credential lock. Storage, clearing, and token-state hooks run under that lock and
-must finish synchronously without calling lifecycle methods. Storage used directly
-by other application code must provide its own synchronization. Use an API without
-the same OAuth interceptor for refresh requests to avoid waiting on their own refresh.
+    let session = OAuthSessionCoordinator<MyTokenResponse>()
+    private let store: MyTokenStore
+    private let tokenService: MyTokenService
+
+    init(store: MyTokenStore, tokenService: MyTokenService) {
+        self.store = store
+        self.tokenService = tokenService
+    }
+
+    func readTokenState() -> TokenState {
+        store.tokenState
+    }
+
+    func fetchCredentials(
+        completion: @escaping (Result<MyTokenResponse, Error>) -> Void
+    ) {
+        tokenService.refresh(completion: completion) // Fetch only; do not store.
+    }
+
+    func accessToken(from credentials: MyTokenResponse) -> String {
+        credentials.accessToken
+    }
+
+    func storeCredentials(_ credentials: MyTokenResponse) {
+        store.save(credentials)
+    }
+
+    func clearCredentials() {
+        store.clear()
+    }
+}
+```
+
+The protocol defaults coordinate storage with login and logout, reject stale or
+duplicate refresh responses, and share concurrent refreshes. Install a successful login with
+`provider.startSession(with: credentials)`. This clears previous credentials, stores
+the new response synchronously, invalidates previous refresh attempts, and publishes
+`.sessionStarted`. Interceptors cancel old-session waiters and remain usable for
+new requests. A refresh updates credentials within its existing session.
+
+Keep the same coordinator for the provider's lifetime; do not create a new one in
+a computed `session` getter. Default implementations are replaceable, so custom
+implementations take responsibility for preserving their coordination guarantees.
+
+Network fetching runs outside the credential lock. Storage, clearing, token-state,
+and token-extraction hooks run under that lock and must finish synchronously
+without calling lifecycle methods. Keep them short and avoid synchronous dispatch
+to another queue that may be waiting for the provider. Storage read directly by
+the fetch service or other application code must provide its own synchronization.
+Use an API without the same OAuth interceptor for refresh requests to avoid waiting
+on their own refresh. Implement `attach(token:to:)` to customize the default
+Authorization bearer header.
 
 The provider also implements the optional `OAuthSessionEvents` protocol. Interceptors
 subscribe automatically and cancel waiting requests when the provider signs out.
 Consumers can independently subscribe as well:
 
 ```swift
-let provider = MyOAuthProvider() // Your SessionOAuthProvider subclass.
+let provider = MyOAuthProvider(store: store, tokenService: tokenService)
 let oauth = OAuthInterceptor(provider: provider)
 let api = Api(config: DefaultApiConfig(interceptors: [oauth]))
 
@@ -102,13 +148,15 @@ subscription.cancel()
 
 Retain each subscription to keep it active. Explicit cancellation or releasing the
 token unregisters that subscriber. Multiple interceptors and application listeners
-can observe one provider. The same provider and interceptor can serve a later sign-in
-once the application has installed its new credentials.
+can observe one provider. Use `startSession(with:)` for subsequent sign-ins with
+the same managed provider and interceptor. Events carry no state snapshot: if
+transitions happen concurrently, read `provider.tokenState` for current state.
 
 Fully custom providers can implement both `OAuthProvider` and `OAuthSessionEvents`
-without inheriting the base class. `OAuthSessionEventPublisher` supplies thread-safe
+without using the managed provider. `OAuthSessionEventPublisher` supplies thread-safe
 subscription management: forward `subscribe` to it and call `send(.signOut)` after
 invalidating refresh work and clearing credentials, before `signOut()` returns.
+Publish `.sessionStarted` when replacing a session with new login credentials.
 Publish outside credential locks. Plain `OAuthProvider` implementations remain usable,
 but without events the interceptor cannot cancel its waiting requests immediately on logout.
 
@@ -117,7 +165,17 @@ Requests already past OAuth must be cancelled through their operations. Requests
 still waiting for OAuth are cancelled asynchronously on each interceptor's queue
 with `ApiError.cancelled`; late refresh results from the old session are ignored.
 Direct refresh callers receive `OAuthError.sessionEnded` if sign-out cancels their
-pending refresh. Sign-out itself does not trigger `onFailedToRenew`.
+pending refresh. Session identity is checked separately before each refresh callback
+begins delivery; an earlier callback may sign out or begin a new session. A callback
+whose delivery has already been claimed cannot be withdrawn. Sign-out itself does
+not trigger `onFailedToRenew`.
+
+The Google provider refreshes tokens on the current user's authentication object;
+it no longer restores a sign-in as part of refresh. It cancels pending completions
+on logout and rejects callbacks for a replaced Google user. Initial Google sign-in
+and restoration remain application-owned SDK flows; SDK operations started outside
+this provider are outside its lifecycle coordination. Google tests use a controlled
+SDK adapter; they do not perform live Google authentication.
 
 ## Response validation
 

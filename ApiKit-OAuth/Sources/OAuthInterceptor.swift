@@ -20,7 +20,7 @@ open class OAuthInterceptor: ApiInterceptor {
   private let queue = DispatchQueue(label: "ApiKit.OAuthInterceptor")
   private let sessionLock = NSRecursiveLock()
   private var sessionId = UUID()
-  private var subscription: OAuthSubscription?
+  private var subscriptions: [OAuthSubscription] = []
   private var refreshId: UUID?
   private var pendingRequests: [(request: URLRequest, completion: (URLRequest?) -> Void)] = []
   /// A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
@@ -37,8 +37,10 @@ open class OAuthInterceptor: ApiInterceptor {
     self.provider = provider
     self.onFailedToRenew = onFailedToRenew
     if let events = provider as? OAuthSessionEvents {
-      subscription = events.subscribe(.signOut) { [weak self] in
-        self?.sessionDidEnd()
+      for event in [OAuthSessionEvent.signOut, .sessionStarted] {
+        subscriptions.append(events.subscribe(event) { [weak self] in
+          self?.sessionDidEnd()
+        })
       }
     }
   }

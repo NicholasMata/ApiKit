@@ -3,6 +3,116 @@ import ApiKit_OAuth
 import XCTest
 
 final class OAuthSessionTests: XCTestCase {
+  func testProtocolDefaultsDispatchThroughOAuthProvider() {
+    let concrete = SessionTestProvider()
+    let provider: OAuthProvider = concrete
+    let events: OAuthSessionEvents = concrete
+    var signOuts = 0
+    let subscription = events.subscribe(.signOut) { signOuts += 1 }
+    concrete.startSession(with: "login")
+    XCTAssertEqual(provider.tokenState, .valid(token: "login"))
+    provider.signOut()
+    XCTAssertEqual(provider.tokenState, .missing)
+    XCTAssertEqual(signOuts, 1)
+    withExtendedLifetime(subscription) {}
+  }
+
+  func testStoredFetchCallbackDoesNotRetainProvider() throws {
+    let released = expectation(description: "Provider releases despite retained fetch callback")
+    var provider: SessionTestProvider? = SessionTestProvider()
+    provider?.onDeinit = { released.fulfill() }
+    provider?.refreshToken { _ in }
+    let callback = try XCTUnwrap(provider?.fetchCallback(0))
+    provider = nil
+    wait(for: [released], timeout: 2)
+    callback(.success("late"))
+  }
+
+  func testLogoutDuringCallbackDeliveryRejectsRemainingRefreshResults() {
+    assertSessionChangeDuringDelivery { $0.signOut() }
+  }
+
+  func testNewLoginDuringCallbackDeliveryRejectsRemainingRefreshResults() {
+    assertSessionChangeDuringDelivery { $0.startSession(with: "new-login") }
+  }
+
+  private func assertSessionChangeDuringDelivery(_ change: (SessionTestProvider) -> Void) {
+    let provider = SessionTestProvider()
+    let delivering = expectation(description: "First callback begins delivery")
+    let release = DispatchSemaphore(value: 0)
+    provider.refreshToken { result in
+      XCTAssertEqual(try? result.get(), "fresh")
+      delivering.fulfill()
+      XCTAssertEqual(release.wait(timeout: .now() + 2), .success)
+    }
+    let cancelled = expectation(description: "Second callback rejects old session result")
+    cancelled.assertForOverFulfill = true
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.sessionEnded) = result else {
+        return XCTFail("Expected ended session, got \(result)")
+      }
+      cancelled.fulfill()
+    }
+    let finished = expectation(description: "Delivery finishes")
+    DispatchQueue.global().async {
+      provider.finish(0, with: .success("fresh"))
+      finished.fulfill()
+    }
+    wait(for: [delivering], timeout: 2)
+    change(provider)
+    release.signal()
+    wait(for: [cancelled, finished], timeout: 2)
+  }
+
+  func testStartSessionInstallsCredentialsAndRejectsOldFetch() {
+    let provider = SessionTestProvider()
+    var ended = 0
+    provider.refreshToken { result in
+      guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
+      ended += 1
+    }
+    var started = 0
+    var signOuts = 0
+    let startedSubscription = provider.subscribe(.sessionStarted) {
+      XCTAssertEqual(provider.tokenState, .valid(token: "login"))
+      started += 1
+    }
+    let signOutSubscription = provider.subscribe(.signOut) { signOuts += 1 }
+    provider.startSession(with: "login")
+    provider.finish(0, with: .success("old-refresh"))
+    XCTAssertEqual(provider.tokenState, .valid(token: "login"))
+    XCTAssertEqual(provider.storedTokens, ["login"])
+    XCTAssertEqual(ended, 1)
+    XCTAssertEqual(started, 1)
+    XCTAssertEqual(signOuts, 0)
+    withExtendedLifetime([startedSubscription, signOutSubscription]) {}
+  }
+
+  func testStartingNewSessionCancelsOldInterceptorWaiterAndAllowsNewRequests() throws {
+    let provider = SessionTestProvider()
+    let refreshing = expectation(description: "Old refresh starts")
+    provider.onFetch = { refreshing.fulfill() }
+    let oauth = OAuthInterceptor(provider: provider)
+    let request = try URLRequest(url: XCTUnwrap(URL(string: "https://apikit.test")))
+    let cancelled = expectation(description: "Old-session request cancels")
+    oauth.api(Api(), modifyRequest: request, withId: UUID()) {
+      XCTAssertNil($0)
+      cancelled.fulfill()
+    }
+    wait(for: [refreshing], timeout: 2)
+    provider.startSession(with: "new-login")
+    wait(for: [cancelled], timeout: 2)
+    provider.finish(0, with: .success("old-token"))
+    let resumed = expectation(description: "New request uses login credentials")
+    oauth.api(Api(), modifyRequest: request, withId: UUID()) {
+      XCTAssertEqual($0?.value(forHTTPHeaderField: "Authorization"), "Bearer new-login")
+      resumed.fulfill()
+    }
+    wait(for: [resumed], timeout: 2)
+    XCTAssertEqual(provider.storedTokens, ["new-login"])
+    XCTAssertEqual(provider.fetchCount, 1)
+  }
+
   func testSubscribersAreIndependentAndCancelOnRelease() {
     let events = OAuthSessionEventPublisher()
     var firstCount = 0
@@ -115,6 +225,17 @@ final class OAuthSessionTests: XCTestCase {
   }
 
   func testSignOutWaitsForCredentialStorageThenClearsIt() {
+    assertSignOutWaitsForStore { provider in
+      provider.refreshToken { _ in }
+      provider.finish(0, with: .success("fresh"))
+    }
+  }
+
+  func testSignOutWaitsForLoginStorageThenClearsIt() {
+    assertSignOutWaitsForStore { $0.startSession(with: "login") }
+  }
+
+  private func assertSignOutWaitsForStore(_ store: @escaping (SessionTestProvider) -> Void) {
     let provider = SessionTestProvider()
     let storing = expectation(description: "Store hook entered")
     let releaseStore = DispatchSemaphore(value: 0)
@@ -122,10 +243,9 @@ final class OAuthSessionTests: XCTestCase {
       storing.fulfill()
       XCTAssertEqual(releaseStore.wait(timeout: .now() + 2), .success)
     }
-    provider.refreshToken { _ in }
     let refreshFinished = expectation(description: "Refresh finishes")
     DispatchQueue.global().async {
-      provider.finish(0, with: .success("fresh"))
+      store(provider)
       refreshFinished.fulfill()
     }
     wait(for: [storing], timeout: 2)
@@ -281,7 +401,8 @@ private enum SessionTestError: Error {
   case invalidToken
 }
 
-private final class SessionTestProvider: SessionOAuthProvider<String> {
+private final class SessionTestProvider: SessionOAuthProvider {
+  let session = OAuthSessionCoordinator<String>()
   private let stateLock = NSLock()
   private var state: TokenState = .expired
   private var stored: [String] = []
@@ -289,6 +410,9 @@ private final class SessionTestProvider: SessionOAuthProvider<String> {
   private var callbacks: [(Result<String, Error>) -> Void] = []
   var onFetch: (() -> Void)?
   var onStore: (() -> Void)?
+  var onDeinit: (() -> Void)?
+
+  deinit { onDeinit?() }
 
   var fetchCount: Int {
     fetchLock.lock()
@@ -308,32 +432,35 @@ private final class SessionTestProvider: SessionOAuthProvider<String> {
     stateLock.unlock()
   }
 
-  override func readTokenState() -> TokenState {
+  func readTokenState() -> TokenState {
     stateLock.lock()
     defer { stateLock.unlock() }
     return state
   }
 
-  override func fetchCredentials(completion: @escaping (Result<String, Error>) -> Void) {
+  func fetchCredentials(completion: @escaping (Result<String, Error>) -> Void) {
     fetchLock.lock()
     callbacks.append(completion)
     fetchLock.unlock()
     onFetch?()
   }
 
-  func finish(_ index: Int, with result: Result<String, Error>) {
+  func fetchCallback(_ index: Int) -> (Result<String, Error>) -> Void {
     fetchLock.lock()
-    let callback = callbacks[index]
-    fetchLock.unlock()
-    callback(result)
+    defer { fetchLock.unlock() }
+    return callbacks[index]
   }
 
-  override func accessToken(from credentials: String) throws -> String {
+  func finish(_ index: Int, with result: Result<String, Error>) {
+    fetchCallback(index)(result)
+  }
+
+  func accessToken(from credentials: String) throws -> String {
     guard !credentials.isEmpty else { throw SessionTestError.invalidToken }
     return credentials
   }
 
-  override func storeCredentials(_ credentials: String) {
+  func storeCredentials(_ credentials: String) {
     onStore?()
     stateLock.lock()
     stored.append(credentials)
@@ -341,7 +468,7 @@ private final class SessionTestProvider: SessionOAuthProvider<String> {
     stateLock.unlock()
   }
 
-  override func clearCredentials() {
+  func clearCredentials() {
     stateLock.lock()
     state = .missing
     stateLock.unlock()

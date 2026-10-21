@@ -1,39 +1,103 @@
 import Foundation
 
-/// Recommended base for providers whose refresh responses contain credentials.
-/// Fetching must not store credentials. Storage and clearing hooks run under the
-/// same lock and must finish synchronously. Override every hook below.
-///
-/// Session events and refresh completions run outside the credential lock.
-/// Do not call lifecycle methods from storage or token-state hooks.
-open class SessionOAuthProvider<Credentials>: OAuthProvider, OAuthSessionEvents {
+/// Recommended provider contract with default session and refresh coordination.
+/// Implement the credential hooks and retain one stable coordinator per provider.
+/// Fetching must not store credentials. The other hooks run under the coordinator's
+/// lock and must finish synchronously without calling lifecycle methods.
+public protocol SessionOAuthProvider: OAuthProvider, OAuthSessionEvents {
+  associatedtype Credentials
+
+  var session: OAuthSessionCoordinator<Credentials> { get }
+
+  func readTokenState() -> TokenState
+  func fetchCredentials(completion: @escaping (Result<Credentials, Error>) -> Void)
+  func accessToken(from credentials: Credentials) throws -> String
+  func storeCredentials(_ credentials: Credentials)
+  func clearCredentials()
+  func startSession(with credentials: Credentials)
+}
+
+public extension SessionOAuthProvider {
+  var tokenState: TokenState {
+    session.tokenState(read: readTokenState)
+  }
+
+  func subscribe(_ event: OAuthSessionEvent, _ handler: @escaping () -> Void) -> OAuthSubscription {
+    session.subscribe(event, handler)
+  }
+
+  /// Replaces stored credentials and invalidates refreshes from the previous session.
+  func startSession(with credentials: Credentials) {
+    session.startSession(with: credentials, store: storeCredentials, clear: clearCredentials)
+  }
+
+  /// Fetches without storing, then commits credentials only for the current session.
+  func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
+    session.refreshToken(
+      readTokenState: readTokenState,
+      fetchCredentials: fetchCredentials,
+      commitCredentials: { [weak self] credentials in
+        guard let self = self else { throw OAuthError.sessionEnded }
+        let token = try self.accessToken(from: credentials)
+        self.storeCredentials(credentials)
+        return token
+      },
+      completion: completion
+    )
+  }
+
+  /// Clears local credentials synchronously and invalidates outstanding refreshes.
+  func signOut() {
+    session.signOut(clear: clearCredentials)
+  }
+}
+
+/// Stores the mutable coordination state used by `SessionOAuthProvider` defaults.
+/// Events and refresh completions run outside the credential lock.
+public final class OAuthSessionCoordinator<Credentials>: OAuthSessionEvents {
   private let lock = NSRecursiveLock()
   private let events = OAuthSessionEventPublisher()
+  private var sessionId = UUID()
   private var refreshId: UUID?
   private var completions: [(Result<String, Error>) -> Void] = []
 
   public init() {}
 
-  public final var tokenState: TokenState {
+  func tokenState(read: () -> TokenState) -> TokenState {
     lock.lock()
     defer { lock.unlock() }
-    return readTokenState()
+    return read()
   }
 
-  /// Override to customize how the access token is attached to a request.
-  open func attach(token: String, to request: URLRequest) -> URLRequest {
-    var request = request
-    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    return request
-  }
-
-  public final func subscribe(_ event: OAuthSessionEvent, _ handler: @escaping () -> Void) -> OAuthSubscription {
+  public func subscribe(_ event: OAuthSessionEvent, _ handler: @escaping () -> Void) -> OAuthSubscription {
     events.subscribe(event, handler)
+  }
+
+  /// Installs login credentials synchronously and begins a new session. Pending
+  /// refreshes from the previous session end with `OAuthError.sessionEnded`.
+  func startSession(with credentials: Credentials, store: (Credentials) -> Void, clear: () -> Void) {
+    lock.lock()
+    sessionId = UUID()
+    refreshId = nil
+    let completions = completions
+    self.completions.removeAll()
+    clear()
+    store(credentials)
+    lock.unlock()
+    events.send(.sessionStarted)
+    for completion in completions {
+      completion(.failure(OAuthError.sessionEnded))
+    }
   }
 
   /// Concurrent callers share one fetch. After sign-out, a late fetch cannot store
   /// credentials or complete a later refresh attempt.
-  public final func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
+  func refreshToken(
+    readTokenState: () -> TokenState,
+    fetchCredentials: (@escaping (Result<Credentials, Error>) -> Void) -> Void,
+    commitCredentials: @escaping (Credentials) throws -> String,
+    completion: @escaping (Result<String, Error>) -> Void
+  ) {
     lock.lock()
     if refreshId != nil {
       completions.append(completion)
@@ -46,23 +110,25 @@ open class SessionOAuthProvider<Credentials>: OAuthProvider, OAuthSessionEvents 
       return
     }
     let id = UUID()
+    let session = sessionId
     refreshId = id
     completions = [completion]
     lock.unlock()
     fetchCredentials { [weak self] result in
-      self?.finishRefresh(result, id: id)
+      self?.finishRefresh(result, id: id, session: session, commitCredentials: commitCredentials)
     }
   }
 
   /// Clears local credentials synchronously and notifies all subscribers.
   /// Transport cancellation and server-side revocation are not implied.
-  /// The same provider can serve a later sign-in after credentials are installed.
-  public final func signOut() {
+  /// Use `startSession(with:)` to install credentials for the next sign-in.
+  func signOut(clear: () -> Void) {
     lock.lock()
+    sessionId = UUID()
     refreshId = nil
     let completions = completions
     self.completions.removeAll()
-    clearCredentials()
+    clear()
     lock.unlock()
     events.send(.signOut)
     for completion in completions {
@@ -70,9 +136,12 @@ open class SessionOAuthProvider<Credentials>: OAuthProvider, OAuthSessionEvents 
     }
   }
 
-  private func finishRefresh(_ result: Result<Credentials, Error>, id: UUID) {
+  private func finishRefresh(
+    _ result: Result<Credentials, Error>, id: UUID, session: UUID,
+    commitCredentials: (Credentials) throws -> String
+  ) {
     lock.lock()
-    guard refreshId == id else {
+    guard sessionId == session, refreshId == id else {
       lock.unlock()
       return
     }
@@ -82,40 +151,19 @@ open class SessionOAuthProvider<Credentials>: OAuthProvider, OAuthSessionEvents 
     let tokenResult: Result<String, Error>
     do {
       let credentials = try result.get()
-      let token = try accessToken(from: credentials)
-      storeCredentials(credentials)
+      let token = try commitCredentials(credentials)
       tokenResult = .success(token)
     } catch {
       tokenResult = .failure(error)
     }
     lock.unlock()
     for completion in completions {
-      completion(tokenResult)
+      // Claim each delivery separately. An earlier callback may change sessions.
+      // Callbacks whose delivery has begun cannot be withdrawn.
+      lock.lock()
+      let current = sessionId == session
+      lock.unlock()
+      completion(current ? tokenResult : .failure(OAuthError.sessionEnded))
     }
-  }
-
-  /// Read stored credentials and expiration. Runs under the credential lock.
-  open func readTokenState() -> TokenState {
-    fatalError("Override readTokenState()")
-  }
-
-  /// Fetch credentials without storing them, and complete with the original error on failure.
-  open func fetchCredentials(completion _: @escaping (Result<Credentials, Error>) -> Void) {
-    fatalError("Override fetchCredentials(completion:)")
-  }
-
-  /// Extract the access token, or throw if the response cannot supply one.
-  open func accessToken(from _: Credentials) throws -> String {
-    fatalError("Override accessToken(from:)")
-  }
-
-  /// Store credentials synchronously. Runs under the credential lock.
-  open func storeCredentials(_: Credentials) {
-    fatalError("Override storeCredentials(_:)")
-  }
-
-  /// Clear credentials synchronously. Runs under the credential lock.
-  open func clearCredentials() {
-    fatalError("Override clearCredentials()")
   }
 }
