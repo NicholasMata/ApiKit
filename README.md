@@ -4,6 +4,10 @@
 
 A simple way to connect your swift code to your APIs.
 
+This branch targets **1.1.0**. See the [release notes](RELEASE_NOTES.md) for
+cancellation fixes and execution changes. Development for **2.0.0** continues
+on [`next`](https://github.com/NicholasMata/ApiKit/tree/next).
+
 ### iOS 12+
 ```swift
 Api.send(.get("https://jsonplaceholder.typicode.com/users")) { (result: Result<[User], Error>) in

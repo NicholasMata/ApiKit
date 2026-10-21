@@ -208,6 +208,72 @@ final class HttpOperationTests: XCTestCase {
     XCTAssertTrue(operation.isFinished)
   }
 
+  func testSerialQueueWaitsForAsynchronousOperationToFinish() {
+    let queue = OperationQueue()
+    queue.maxConcurrentOperationCount = 1
+    let modifying = expectation(description: "First request waits for its modifier")
+    let completed = expectation(description: "Both operations complete")
+    completed.expectedFulfillmentCount = 2
+    var pending: ((URLRequest?) -> Void)?
+    let first = HttpOperation(request: request) { _ in completed.fulfill() }
+    first.requestModifiers = [{ _, _, proceed in
+      pending = proceed
+      modifying.fulfill()
+    }]
+    first.onWillSendRequest = { _, _, complete in
+      complete(.failure(ApiError.notHttpRequest))
+      return true
+    }
+    let second = HttpOperation(request: request) { _ in completed.fulfill() }
+    second.onWillSendRequest = { _, _, complete in
+      XCTAssertTrue(first.isFinished)
+      complete(.failure(ApiError.notHttpRequest))
+      return true
+    }
+    queue.addOperation(first)
+    wait(for: [modifying], timeout: 2)
+    queue.addOperation(second)
+    XCTAssertTrue(first.isExecuting)
+    XCTAssertFalse(second.isExecuting)
+    XCTAssertFalse(second.isFinished)
+    pending?(request)
+    wait(for: [completed], timeout: 2)
+  }
+
+  func testDependenciesWaitForAsynchronousOperationToFinish() {
+    let queue = OperationQueue()
+    queue.isSuspended = true
+    let modifying = expectation(description: "Request waits for its modifier")
+    let completed = expectation(description: "Dependent operation runs")
+    let prerequisite = BlockOperation {}
+    let operation = HttpOperation(request: request, completion: nil)
+    var pending: ((URLRequest?) -> Void)?
+    operation.addDependency(prerequisite)
+    operation.requestModifiers = [{ _, _, proceed in
+      XCTAssertTrue(prerequisite.isFinished)
+      pending = proceed
+      modifying.fulfill()
+    }]
+    operation.onWillSendRequest = { _, _, complete in
+      complete(.failure(ApiError.notHttpRequest))
+      return true
+    }
+    let dependent = BlockOperation {
+      XCTAssertTrue(operation.isFinished)
+      completed.fulfill()
+    }
+    dependent.addDependency(operation)
+    queue.addOperations([dependent, operation, prerequisite], waitUntilFinished: false)
+    queue.isSuspended = false
+
+    wait(for: [modifying], timeout: 2)
+    XCTAssertFalse(operation.isFinished)
+    XCTAssertFalse(dependent.isExecuting)
+    XCTAssertFalse(dependent.isFinished)
+    pending?(request)
+    wait(for: [completed], timeout: 2)
+  }
+
   func testRepeatedModifierCallbackCannotSkipNextModifier() {
     let modifying = expectation(description: "Second modifier is pending")
     let completed = expectation(description: "Request completes once")
