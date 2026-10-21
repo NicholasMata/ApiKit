@@ -2,7 +2,7 @@
 
 ## 1.1.0 — Unreleased
 
-The `1.x` branch contains the cancellation and nonblocking execution fixes.
+The `1.1.0` branch contains the cancellation and nonblocking execution fixes.
 The `next` branch targets 2.0.0 and includes these fixes alongside the new
 validation and OAuth session APIs.
 
