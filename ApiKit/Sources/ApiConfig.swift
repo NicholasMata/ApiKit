@@ -24,6 +24,8 @@ public class DefaultApiConfig: ApiConfig {
   /// - Parameters:
   ///   - decoder: The default decoder.
   ///   - interceptors: The interceptors that will be used.
+  ///   - requestQueue: Starts and limits concurrent request operations.
+  ///   - responseQueue: Executes response processing and final completions.
   public init(decoder: JSONDecoder = .init(), interceptors: [ApiInterceptor] = [],
               requestQueue: OperationQueue = OperationQueue(),
               responseQueue: OperationQueue = OperationQueue()) {

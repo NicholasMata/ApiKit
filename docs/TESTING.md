@@ -1,4 +1,4 @@
-# Testing 1.1.0
+# Testing
 
 Run these commands from the repository root with Xcode selected as the active
 developer directory. They use the checked-in `Package.resolved`; no test requires
@@ -16,8 +16,9 @@ The complete suite covers URLSession request/response processing through local
 URLProtocol fixtures, decoding, status-code boundaries, download writes and
 failures, request construction and form encoding, operation dependencies,
 cancellation races, shared OAuth refresh, and Google provider compatibility.
-The Google SDK is replaced only through an internal test seam; 1.1.0 continues
-to restore previous sign-in during refresh.
+The Google SDK is replaced only through an internal test seam. On `1.1.0`, tests
+preserve previous sign-in restoration during refresh. On `next`, tests verify
+refresh of the current user and rejection of results from ended sessions.
 
 ## CI
 

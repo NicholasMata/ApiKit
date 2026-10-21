@@ -1,5 +1,34 @@
 # Release Notes
 
+## 2.0.0 — Unreleased
+
+The `next` branch includes all 1.1.0 fixes plus the following changes.
+
+### Breaking changes
+
+- `OAuthProvider` requires `endSession()` without a default implementation.
+  Custom providers must invalidate outstanding refreshes and clear their own
+  credentials, or adopt `SessionOAuthProvider` for coordinated defaults.
+- `DefaultGoogleAuthProvider` refreshes the current Google user's tokens instead
+  of restoring a previous sign-in. Applications must perform initial Google
+  sign-in restoration explicitly.
+
+### Additions
+
+- Fluent, per-request response validation through
+  `api.using(request).validating(...).send(...)`. Existing `send` methods retain
+  their default status-code validation.
+- Protocol-based `SessionOAuthProvider`, coordinated credential storage, and
+  `beginSession(with:)` / `endSession()` lifecycle methods that reject stale
+  refresh results.
+- Session events with multiple subscribers, consumed automatically by
+  `OAuthInterceptor` to invalidate pending authentication when sessions change.
+- DocC API references and guides for all three modules, a combined documentation
+  site, and GitHub Pages deployment tooling.
+
+See [Migrating Providers](ApiKit-OAuth/Sources/ApiKit-OAuth.docc/MigratingProviders.md)
+for the OAuth migration steps.
+
 ## 1.1.0 — Unreleased
 
 The `1.1.0` branch contains the cancellation and nonblocking execution fixes.

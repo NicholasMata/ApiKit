@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480">
+  <rect width="960" height="480" rx="32" fill="#eff6ff"/>
+  <circle cx="834" cy="68" r="190" fill="#2563eb" opacity=".06"/>
+  <circle cx="890" cy="450" r="230" fill="#2563eb" opacity=".06"/>
+  <rect x="66" y="62" width="92" height="92" rx="24" fill="#2563eb"/>
+  <text x="112" y="124" text-anchor="middle" font-family="Menlo, monospace" font-size="46" font-weight="600" fill="white">{ }</text>
+  <text x="66" y="264" font-family="-apple-system, Helvetica, sans-serif" font-size="76" font-weight="700" fill="#0f172a">ApiKit</text>
+  <text x="70" y="328" font-family="-apple-system, Helvetica, sans-serif" font-size="28" fill="#475569">Requests · Responses · Cancellation</text>
+  <rect x="70" y="386" width="118" height="6" rx="3" fill="#2563eb"/>
+</svg>

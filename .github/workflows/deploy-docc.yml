@@ -1,0 +1,68 @@
+name: Deploy DocC
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-docc.yml"
+      - "Package.swift"
+      - "Package.resolved"
+      - "ApiKit/Sources/**"
+      - "ApiKit-OAuth/Sources/**"
+      - "ApiKit-Google/Sources/**"
+      - "docs/**"
+  pull_request:
+    paths:
+      - ".github/workflows/deploy-docc.yml"
+      - "Package.swift"
+      - "Package.resolved"
+      - "ApiKit/Sources/**"
+      - "ApiKit-OAuth/Sources/**"
+      - "ApiKit-Google/Sources/**"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docc-${{ github.event_name == 'pull_request' && github.ref || 'pages' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Build DocC site
+        run: zsh ./docs/build-docc-site.sh
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .build/docc/site
+          include-hidden-files: true
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -12,7 +12,7 @@ public protocol ApiInterceptor {
   /// Called once a response for a Api Request is recieved.
   /// - Parameters:
   ///   - api: The api that received the response.
-  ///   - response: The response that was received or error.
+  ///   - result: The response that was received or error.
   ///   - identifier: An identifier representing the request.
   ///   - request: The request that was sent to get this response.
   ///   - completion: The completion handler that should be called if the interceptor has handled the response.
@@ -49,6 +49,7 @@ public protocol ApiInterceptor {
 
 /// Extension so that you don't need to implement all methods of ApiInterceptor if you dont want to.
 public extension ApiInterceptor where Self: AnyObject {
+  /// Leaves the received result unhandled for subsequent interceptors and validation.
   func api(_: Api,
            didReceive _: Result<HttpDataResponse, Error>,
            withId _: UUID,
@@ -58,6 +59,7 @@ public extension ApiInterceptor where Self: AnyObject {
     return false
   }
 
+  /// Continues preparation with the original request.
   func api(_: Api,
            modifyRequest request: URLRequest,
            withId _: UUID,
@@ -66,6 +68,7 @@ public extension ApiInterceptor where Self: AnyObject {
     onNewRequest(request)
   }
 
+  /// Continues with normal request execution.
   func api(_: Api,
            willSendRequest _: URLRequest,
            withId _: UUID,
