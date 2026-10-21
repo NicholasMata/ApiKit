@@ -7,13 +7,13 @@ final class OAuthSessionTests: XCTestCase {
     let concrete = SessionTestProvider()
     let provider: OAuthProvider = concrete
     let events: OAuthSessionEvents = concrete
-    var signOuts = 0
-    let subscription = events.subscribe(.signOut) { signOuts += 1 }
-    concrete.startSession(with: "login")
+    var endSessions = 0
+    let subscription = events.subscribe(.sessionEnded) { endSessions += 1 }
+    concrete.beginSession(with: "login")
     XCTAssertEqual(provider.tokenState, .valid(token: "login"))
-    provider.signOut()
+    provider.endSession()
     XCTAssertEqual(provider.tokenState, .missing)
-    XCTAssertEqual(signOuts, 1)
+    XCTAssertEqual(endSessions, 1)
     withExtendedLifetime(subscription) {}
   }
 
@@ -29,11 +29,11 @@ final class OAuthSessionTests: XCTestCase {
   }
 
   func testLogoutDuringCallbackDeliveryRejectsRemainingRefreshResults() {
-    assertSessionChangeDuringDelivery { $0.signOut() }
+    assertSessionChangeDuringDelivery { $0.endSession() }
   }
 
   func testNewLoginDuringCallbackDeliveryRejectsRemainingRefreshResults() {
-    assertSessionChangeDuringDelivery { $0.startSession(with: "new-login") }
+    assertSessionChangeDuringDelivery { $0.beginSession(with: "new-login") }
   }
 
   private func assertSessionChangeDuringDelivery(_ change: (SessionTestProvider) -> Void) {
@@ -64,7 +64,7 @@ final class OAuthSessionTests: XCTestCase {
     wait(for: [cancelled, finished], timeout: 2)
   }
 
-  func testStartSessionInstallsCredentialsAndRejectsOldFetch() {
+  func testBeginSessionInstallsCredentialsAndRejectsOldFetch() {
     let provider = SessionTestProvider()
     var ended = 0
     provider.refreshToken { result in
@@ -72,20 +72,20 @@ final class OAuthSessionTests: XCTestCase {
       ended += 1
     }
     var started = 0
-    var signOuts = 0
+    var endSessions = 0
     let startedSubscription = provider.subscribe(.sessionStarted) {
       XCTAssertEqual(provider.tokenState, .valid(token: "login"))
       started += 1
     }
-    let signOutSubscription = provider.subscribe(.signOut) { signOuts += 1 }
-    provider.startSession(with: "login")
+    let endSessionSubscription = provider.subscribe(.sessionEnded) { endSessions += 1 }
+    provider.beginSession(with: "login")
     provider.finish(0, with: .success("old-refresh"))
     XCTAssertEqual(provider.tokenState, .valid(token: "login"))
     XCTAssertEqual(provider.storedTokens, ["login"])
     XCTAssertEqual(ended, 1)
     XCTAssertEqual(started, 1)
-    XCTAssertEqual(signOuts, 0)
-    withExtendedLifetime([startedSubscription, signOutSubscription]) {}
+    XCTAssertEqual(endSessions, 0)
+    withExtendedLifetime([startedSubscription, endSessionSubscription]) {}
   }
 
   func testStartingNewSessionCancelsOldInterceptorWaiterAndAllowsNewRequests() throws {
@@ -100,7 +100,7 @@ final class OAuthSessionTests: XCTestCase {
       cancelled.fulfill()
     }
     wait(for: [refreshing], timeout: 2)
-    provider.startSession(with: "new-login")
+    provider.beginSession(with: "new-login")
     wait(for: [cancelled], timeout: 2)
     provider.finish(0, with: .success("old-token"))
     let resumed = expectation(description: "New request uses login credentials")
@@ -117,19 +117,19 @@ final class OAuthSessionTests: XCTestCase {
     let events = OAuthSessionEventPublisher()
     var firstCount = 0
     var secondCount = 0
-    let first = events.subscribe(.signOut) { firstCount += 1 }
-    var second: OAuthSubscription? = events.subscribe(.signOut) { secondCount += 1 }
-    events.send(.signOut)
+    let first = events.subscribe(.sessionEnded) { firstCount += 1 }
+    var second: OAuthSubscription? = events.subscribe(.sessionEnded) { secondCount += 1 }
+    events.send(.sessionEnded)
     XCTAssertEqual(firstCount, 1)
     XCTAssertEqual(secondCount, 1)
     first.cancel()
     first.cancel()
-    events.send(.signOut)
+    events.send(.sessionEnded)
     XCTAssertEqual(firstCount, 1)
     XCTAssertEqual(secondCount, 2)
     XCTAssertNotNil(second)
     second = nil
-    events.send(.signOut)
+    events.send(.sessionEnded)
     XCTAssertEqual(secondCount, 2)
   }
 
@@ -137,13 +137,13 @@ final class OAuthSessionTests: XCTestCase {
     let provider = SessionTestProvider()
     var subscription: OAuthSubscription?
     var count = 0
-    subscription = provider.subscribe(.signOut) {
+    subscription = provider.subscribe(.sessionEnded) {
       XCTAssertEqual(provider.tokenState, .missing)
       count += 1
       subscription?.cancel()
     }
-    provider.signOut()
-    provider.signOut()
+    provider.endSession()
+    provider.endSession()
     XCTAssertEqual(count, 1)
   }
 
@@ -190,7 +190,7 @@ final class OAuthSessionTests: XCTestCase {
     XCTAssertEqual(provider.storedTokens, ["fresh"])
   }
 
-  func testSignOutSynchronouslyClearsAndRejectsLateRefresh() {
+  func testEndSessionSynchronouslyClearsAndRejectsLateRefresh() {
     let provider = SessionTestProvider()
     var completionCount = 0
     provider.refreshToken { result in
@@ -199,7 +199,7 @@ final class OAuthSessionTests: XCTestCase {
       }
       completionCount += 1
     }
-    provider.signOut()
+    provider.endSession()
     XCTAssertEqual(provider.tokenState, .missing)
     XCTAssertEqual(completionCount, 1)
     provider.finish(0, with: .success("stale"))
@@ -212,7 +212,7 @@ final class OAuthSessionTests: XCTestCase {
   func testOldRefreshCannotCompleteNewSessionRefresh() {
     let provider = SessionTestProvider()
     provider.refreshToken { _ in }
-    provider.signOut()
+    provider.endSession()
     provider.installExpiredSession()
     var newResult: Result<String, Error>?
     provider.refreshToken { newResult = $0 }
@@ -224,18 +224,18 @@ final class OAuthSessionTests: XCTestCase {
     XCTAssertEqual(provider.storedTokens, ["new-session"])
   }
 
-  func testSignOutWaitsForCredentialStorageThenClearsIt() {
-    assertSignOutWaitsForStore { provider in
+  func testEndSessionWaitsForCredentialStorageThenClearsIt() {
+    assertEndSessionWaitsForStore { provider in
       provider.refreshToken { _ in }
       provider.finish(0, with: .success("fresh"))
     }
   }
 
-  func testSignOutWaitsForLoginStorageThenClearsIt() {
-    assertSignOutWaitsForStore { $0.startSession(with: "login") }
+  func testEndSessionWaitsForLoginStorageThenClearsIt() {
+    assertEndSessionWaitsForStore { $0.beginSession(with: "login") }
   }
 
-  private func assertSignOutWaitsForStore(_ store: @escaping (SessionTestProvider) -> Void) {
+  private func assertEndSessionWaitsForStore(_ store: @escaping (SessionTestProvider) -> Void) {
     let provider = SessionTestProvider()
     let storing = expectation(description: "Store hook entered")
     let releaseStore = DispatchSemaphore(value: 0)
@@ -253,7 +253,7 @@ final class OAuthSessionTests: XCTestCase {
     let logoutReturned = DispatchSemaphore(value: 0)
     DispatchQueue.global().async {
       logoutStarted.signal()
-      provider.signOut()
+      provider.endSession()
       logoutReturned.signal()
     }
     XCTAssertEqual(logoutStarted.wait(timeout: .now() + 2), .success)
@@ -280,14 +280,14 @@ final class OAuthSessionTests: XCTestCase {
 
   func testMissingCredentialsDoNotStartFetch() {
     let provider = SessionTestProvider()
-    provider.signOut()
+    provider.endSession()
     provider.refreshToken { result in
       guard case .failure(OAuthError.noToken) = result else { return XCTFail("Expected missing token") }
     }
     XCTAssertEqual(provider.fetchCount, 0)
   }
 
-  func testSignOutNotifiesMultipleInterceptorsAndTheyCanServeNewSession() throws {
+  func testEndSessionNotifiesMultipleInterceptorsAndTheyCanServeNewSession() throws {
     let provider = SessionTestProvider()
     let refreshing = expectation(description: "Shared refresh starts")
     provider.onFetch = { refreshing.fulfill() }
@@ -309,7 +309,7 @@ final class OAuthSessionTests: XCTestCase {
       XCTAssertNil($0)
       cancelled.fulfill()
     }
-    provider.signOut()
+    provider.endSession()
     wait(for: [cancelled], timeout: 2)
     provider.finish(0, with: .success("old-session"))
     XCTAssertEqual(provider.tokenState, .missing)
@@ -342,7 +342,7 @@ final class OAuthSessionTests: XCTestCase {
       cancelled.fulfill()
     }
     wait(for: [started], timeout: 2)
-    provider.signOut()
+    provider.endSession()
     wait(for: [cancelled], timeout: 2)
     // Its provider deliberately reports a late result: the interceptor ignores it.
     provider.finish?(.success("stale"))
@@ -356,7 +356,7 @@ final class OAuthSessionTests: XCTestCase {
     wait(for: [released], timeout: 2)
   }
 
-  func testSignOutCompletesApiOperationWithoutWaitingForCustomRefreshCallback() throws {
+  func testEndSessionCompletesApiOperationWithoutWaitingForCustomRefreshCallback() throws {
     let provider = CustomEventProvider()
     let started = expectation(description: "Custom refresh starts")
     provider.onRefresh = { started.fulfill() }
@@ -377,7 +377,7 @@ final class OAuthSessionTests: XCTestCase {
       task.cancel()
     }
     wait(for: [started], timeout: 2)
-    provider.signOut()
+    provider.endSession()
     wait(for: [completed], timeout: 2)
     XCTAssertTrue(operation.isCancelled)
     XCTAssertTrue(operation.isFinished)
@@ -494,11 +494,11 @@ private final class CustomEventProvider: OAuthProvider, OAuthSessionEvents {
     onRefresh?()
   }
 
-  func signOut() {
+  func endSession() {
     lock.lock()
     state = .missing
     lock.unlock()
-    events.send(.signOut)
+    events.send(.sessionEnded)
   }
 
   func subscribe(_ event: OAuthSessionEvent, _ handler: @escaping () -> Void) -> OAuthSubscription {

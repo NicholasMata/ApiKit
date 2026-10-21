@@ -42,7 +42,7 @@ final class ApiKitOAuthTests: XCTestCase {
 }
 
 private final class ManagedProvider: OAuthTokenManagedProvider {
-  func signOut() { tokenManager.clear() }
+  func endSession() { tokenManager.clear() }
   var tokenManager: TokenManager
   init(manager: TokenManager) { tokenManager = manager }
   func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {

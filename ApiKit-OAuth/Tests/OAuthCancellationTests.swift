@@ -332,7 +332,7 @@ final class OAuthCancellationTests: XCTestCase {
 }
 
 private final class FixedTokenProvider: OAuthProvider {
-  func signOut() {}
+  func endSession() {}
   let tokenState: TokenState
   init(state: TokenState) { tokenState = state }
   func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
@@ -348,7 +348,7 @@ private final class FixedTokenProvider: OAuthProvider {
 
 /// Holds refresh open until the test explicitly supplies a fresh credential.
 private final class PendingTokenProvider: OAuthProvider {
-  func signOut() {
+  func endSession() {
     lock.lock()
     state = .missing
     let completion = pendingRefresh
@@ -356,6 +356,7 @@ private final class PendingTokenProvider: OAuthProvider {
     lock.unlock()
     completion?(.failure(OAuthError.sessionEnded))
   }
+
   private let lock = NSLock()
   private let onRefresh: () -> Void
   private let completesSynchronously: Bool

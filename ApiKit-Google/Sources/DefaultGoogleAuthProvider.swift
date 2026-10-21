@@ -33,14 +33,14 @@ open class DefaultGoogleAuthProvider: OAuthProvider, OAuthSessionEvents {
     events.subscribe(event, handler)
   }
 
-  public func signOut() {
+  public func endSession() {
     lock.lock()
     sessionId = UUID()
     let completions = pending.values.map { $0.completion }
     pending.removeAll()
     client.signOut()
     lock.unlock()
-    events.send(.signOut)
+    events.send(.sessionEnded)
     for completion in completions {
       completion(.failure(OAuthError.sessionEnded))
     }

@@ -37,7 +37,7 @@ open class OAuthInterceptor: ApiInterceptor {
     self.provider = provider
     self.onFailedToRenew = onFailedToRenew
     if let events = provider as? OAuthSessionEvents {
-      for event in [OAuthSessionEvent.signOut, .sessionStarted] {
+      for event in [OAuthSessionEvent.sessionEnded, .sessionStarted] {
         subscriptions.append(events.subscribe(event) { [weak self] in
           self?.sessionDidEnd()
         })

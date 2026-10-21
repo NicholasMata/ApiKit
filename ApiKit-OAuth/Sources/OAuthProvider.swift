@@ -10,9 +10,10 @@ import Foundation
 /// An OAuth provider that manages access token.
 public protocol OAuthProvider {
   /// End the local session and prevent outstanding refreshes from restoring credentials.
-  /// Providers supporting session events must publish `.signOut` before returning.
+  /// Server-side logout and token revocation are separate operations.
+  /// Providers supporting session events must publish `.sessionEnded` before returning.
   /// There is intentionally no default implementation.
-  func signOut()
+  func endSession()
 
   /// Get the current state of the access token.
   var tokenState: TokenState { get }

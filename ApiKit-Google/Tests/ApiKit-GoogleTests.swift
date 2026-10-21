@@ -38,7 +38,7 @@ final class ApiKitGoogleTests: XCTestCase {
     let client = TestGoogleClient()
     client.currentUser = StubGoogleUser()
     let provider = TestGoogleProvider(client: client)
-    provider.onToken = { [weak provider] in provider?.signOut() }
+    provider.onToken = { [weak provider] in provider?.endSession() }
     XCTAssertEqual(provider.tokenState, .missing)
     XCTAssertNil(client.currentUser)
   }
@@ -59,18 +59,18 @@ final class ApiKitGoogleTests: XCTestCase {
     XCTAssertEqual(count, 1)
   }
 
-  func testSignOutCancelsRefreshAndLateCallbackCannotRestoreSession() {
+  func testEndSessionCancelsRefreshAndLateCallbackCannotRestoreSession() {
     let client = TestGoogleClient()
     client.currentUser = GIDGoogleUser()
     let provider = TestGoogleProvider(client: client)
     var completions = 0
     var events = 0
-    let subscription = provider.subscribe(.signOut) { events += 1 }
+    let subscription = provider.subscribe(.sessionEnded) { events += 1 }
     provider.refreshToken { result in
       guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
       completions += 1
     }
-    provider.signOut()
+    provider.endSession()
     XCTAssertNil(client.currentUser)
     XCTAssertEqual(completions, 1)
     XCTAssertEqual(events, 1)
@@ -88,7 +88,7 @@ final class ApiKitGoogleTests: XCTestCase {
     provider.refreshToken { result in
       guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }
     }
-    provider.signOut()
+    provider.endSession()
     let newUser = GIDGoogleUser()
     client.currentUser = newUser
     var token: String?
@@ -102,7 +102,7 @@ final class ApiKitGoogleTests: XCTestCase {
     XCTAssertEqual(client.signOutCount, 1)
   }
 
-  func testAccountChangeRejectsOldRefreshEvenWithoutProviderSignOut() {
+  func testAccountChangeRejectsOldRefreshEvenWithoutProviderEndSession() {
     let client = TestGoogleClient()
     client.currentUser = GIDGoogleUser()
     let provider = TestGoogleProvider(client: client)
@@ -147,11 +147,11 @@ final class ApiKitGoogleTests: XCTestCase {
     client.finish(0)
   }
 
-  func testSignOutDuringTokenExtractionRejectsResult() {
+  func testEndSessionDuringTokenExtractionRejectsResult() {
     let client = TestGoogleClient()
     client.currentUser = GIDGoogleUser()
     let provider = TestGoogleProvider(client: client)
-    provider.onToken = { [weak provider] in provider?.signOut() }
+    provider.onToken = { [weak provider] in provider?.endSession() }
     var count = 0
     provider.refreshToken { result in
       guard case .failure(OAuthError.sessionEnded) = result else { return XCTFail("Expected ended session") }

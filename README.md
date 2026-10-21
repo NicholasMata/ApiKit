@@ -60,7 +60,7 @@ refresh cancels all requests waiting for that attempt.
 
 ## OAuth sessions
 
-`OAuthProvider` requires `signOut()` without a default implementation. Custom
+`OAuthProvider` requires `endSession()` without a default implementation. Custom
 providers must implement it to clear local credentials and prevent outstanding
 refreshes from restoring them. This is a source-breaking requirement for existing
 providers. `OAuthTokenManagedProvider` implementations must also supply it; a token
@@ -111,10 +111,14 @@ final class MyOAuthProvider: SessionOAuthProvider {
 
 The protocol defaults coordinate storage with login and logout, reject stale or
 duplicate refresh responses, and share concurrent refreshes. Install a successful login with
-`provider.startSession(with: credentials)`. This clears previous credentials, stores
+`provider.beginSession(with: credentials)`. This clears previous credentials, stores
 the new response synchronously, invalidates previous refresh attempts, and publishes
 `.sessionStarted`. Interceptors cancel old-session waiters and remain usable for
 new requests. A refresh updates credentials within its existing session.
+
+`beginSession(with:)` installs credentials after authentication has already succeeded;
+it does not perform a sign-in request. `endSession()` ends the local session and
+does not imply server-side logout or token revocation.
 
 Keep the same coordinator for the provider's lifetime; do not create a new one in
 a computed `session` getter. Default implementations are replaceable, so custom
@@ -138,36 +142,37 @@ let provider = MyOAuthProvider(store: store, tokenService: tokenService)
 let oauth = OAuthInterceptor(provider: provider)
 let api = Api(config: DefaultApiConfig(interceptors: [oauth]))
 
-let subscription = provider.subscribe(.signOut) {
+let subscription = provider.subscribe(.sessionEnded) {
     // Update application state. Runs on the thread that publishes the event.
 }
 
-provider.signOut()
+provider.beginSession(with: credentials)
+provider.endSession()
 subscription.cancel()
 ```
 
 Retain each subscription to keep it active. Explicit cancellation or releasing the
 token unregisters that subscriber. Multiple interceptors and application listeners
-can observe one provider. Use `startSession(with:)` for subsequent sign-ins with
+can observe one provider. Use `beginSession(with:)` for subsequent sign-ins with
 the same managed provider and interceptor. Events carry no state snapshot: if
 transitions happen concurrently, read `provider.tokenState` for current state.
 
 Fully custom providers can implement both `OAuthProvider` and `OAuthSessionEvents`
 without using the managed provider. `OAuthSessionEventPublisher` supplies thread-safe
-subscription management: forward `subscribe` to it and call `send(.signOut)` after
-invalidating refresh work and clearing credentials, before `signOut()` returns.
+subscription management: forward `subscribe` to it and call `send(.sessionEnded)` after
+invalidating refresh work and clearing credentials, before `endSession()` returns.
 Publish `.sessionStarted` when replacing a session with new login credentials.
 Publish outside credential locks. Plain `OAuthProvider` implementations remain usable,
 but without events the interceptor cannot cancel its waiting requests immediately on logout.
 
-Local sign-out does not revoke tokens at the server or cancel refresh transport.
+Ending the local session does not revoke tokens at the server or cancel refresh transport.
 Requests already past OAuth must be cancelled through their operations. Requests
 still waiting for OAuth are cancelled asynchronously on each interceptor's queue
 with `ApiError.cancelled`; late refresh results from the old session are ignored.
-Direct refresh callers receive `OAuthError.sessionEnded` if sign-out cancels their
+Direct refresh callers receive `OAuthError.sessionEnded` if ending the session cancels their
 pending refresh. Session identity is checked separately before each refresh callback
 begins delivery; an earlier callback may sign out or begin a new session. A callback
-whose delivery has already been claimed cannot be withdrawn. Sign-out itself does
+whose delivery has already been claimed cannot be withdrawn. Ending the session does
 not trigger `onFailedToRenew`.
 
 The Google provider refreshes tokens on the current user's authentication object;

@@ -14,7 +14,8 @@ public protocol SessionOAuthProvider: OAuthProvider, OAuthSessionEvents {
   func accessToken(from credentials: Credentials) throws -> String
   func storeCredentials(_ credentials: Credentials)
   func clearCredentials()
-  func startSession(with credentials: Credentials)
+  /// Install credentials from an already completed authentication flow.
+  func beginSession(with credentials: Credentials)
 }
 
 public extension SessionOAuthProvider {
@@ -26,9 +27,10 @@ public extension SessionOAuthProvider {
     session.subscribe(event, handler)
   }
 
-  /// Replaces stored credentials and invalidates refreshes from the previous session.
-  func startSession(with credentials: Credentials) {
-    session.startSession(with: credentials, store: storeCredentials, clear: clearCredentials)
+  /// Installs credentials locally and invalidates refreshes from the previous session.
+  /// Does not perform a sign-in request.
+  func beginSession(with credentials: Credentials) {
+    session.beginSession(with: credentials, store: storeCredentials, clear: clearCredentials)
   }
 
   /// Fetches without storing, then commits credentials only for the current session.
@@ -47,8 +49,9 @@ public extension SessionOAuthProvider {
   }
 
   /// Clears local credentials synchronously and invalidates outstanding refreshes.
-  func signOut() {
-    session.signOut(clear: clearCredentials)
+  /// Does not perform server-side logout or token revocation.
+  func endSession() {
+    session.endSession(clear: clearCredentials)
   }
 }
 
@@ -75,7 +78,7 @@ public final class OAuthSessionCoordinator<Credentials>: OAuthSessionEvents {
 
   /// Installs login credentials synchronously and begins a new session. Pending
   /// refreshes from the previous session end with `OAuthError.sessionEnded`.
-  func startSession(with credentials: Credentials, store: (Credentials) -> Void, clear: () -> Void) {
+  func beginSession(with credentials: Credentials, store: (Credentials) -> Void, clear: () -> Void) {
     lock.lock()
     sessionId = UUID()
     refreshId = nil
@@ -90,7 +93,7 @@ public final class OAuthSessionCoordinator<Credentials>: OAuthSessionEvents {
     }
   }
 
-  /// Concurrent callers share one fetch. After sign-out, a late fetch cannot store
+  /// Concurrent callers share one fetch. After the session ends, a late fetch cannot store
   /// credentials or complete a later refresh attempt.
   func refreshToken(
     readTokenState: () -> TokenState,
@@ -121,8 +124,8 @@ public final class OAuthSessionCoordinator<Credentials>: OAuthSessionEvents {
 
   /// Clears local credentials synchronously and notifies all subscribers.
   /// Transport cancellation and server-side revocation are not implied.
-  /// Use `startSession(with:)` to install credentials for the next sign-in.
-  func signOut(clear: () -> Void) {
+  /// Use `beginSession(with:)` to install credentials for the next sign-in.
+  func endSession(clear: () -> Void) {
     lock.lock()
     sessionId = UUID()
     refreshId = nil
@@ -130,7 +133,7 @@ public final class OAuthSessionCoordinator<Credentials>: OAuthSessionEvents {
     self.completions.removeAll()
     clear()
     lock.unlock()
-    events.send(.signOut)
+    events.send(.sessionEnded)
     for completion in completions {
       completion(.failure(OAuthError.sessionEnded))
     }
