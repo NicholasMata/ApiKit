@@ -9,14 +9,18 @@ import Foundation
 
 /// An OAuth provider that manages access token.
 public protocol OAuthProvider {
-  
+  /// End the local session and prevent outstanding refreshes from restoring credentials.
+  /// Providers supporting session events must publish `.signOut` before returning.
+  /// There is intentionally no default implementation.
+  func signOut()
+
   /// Get the current state of the access token.
   var tokenState: TokenState { get }
-  
+
   /// Refresh the token provided
   /// - Parameter completion: A function to call when the token is refreshed or fails to refresh.
-  func refreshToken(completion: @escaping (Result<String, Error>)-> Void)
-  
+  func refreshToken(completion: @escaping (Result<String, Error>) -> Void)
+
   /// Attach the token to the request. The default implementation will add token to "Authorization" header as Bearer token.
   /// - Parameters:
   ///   - token: The token to add to the request

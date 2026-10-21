@@ -58,6 +58,67 @@ Requests sharing an `OAuthInterceptor` share an in-progress token refresh.
 Cancelling one request leaves the refresh available to other requests. A failed
 refresh cancels all requests waiting for that attempt.
 
+## OAuth sessions
+
+`OAuthProvider` requires `signOut()` without a default implementation. Custom
+providers must implement it to clear local credentials and prevent outstanding
+refreshes from restoring them. This is a source-breaking requirement for existing
+providers. `OAuthTokenManagedProvider` implementations must also supply it; a token
+manager's `clear()` alone is insufficient if it is asynchronous or a refresh can
+subsequently write credentials again.
+
+For the recommended implementation, subclass `SessionOAuthProvider<Credentials>`,
+where `Credentials` is your decoded token response. Override:
+
+- `readTokenState()` to read stored credentials and expiration.
+- `fetchCredentials(completion:)` to fetch the token response without storing it.
+- `accessToken(from:)` to extract the access token.
+- `storeCredentials(_:)` to store the response synchronously.
+- `clearCredentials()` to clear credentials synchronously.
+
+The base class coordinates storage with logout, rejects stale or duplicate refresh
+responses, and shares concurrent refreshes. Network fetching runs outside its
+credential lock. Storage, clearing, and token-state hooks run under that lock and
+must finish synchronously without calling lifecycle methods. Storage used directly
+by other application code must provide its own synchronization. Use an API without
+the same OAuth interceptor for refresh requests to avoid waiting on their own refresh.
+
+The provider also implements the optional `OAuthSessionEvents` protocol. Interceptors
+subscribe automatically and cancel waiting requests when the provider signs out.
+Consumers can independently subscribe as well:
+
+```swift
+let provider = MyOAuthProvider() // Your SessionOAuthProvider subclass.
+let oauth = OAuthInterceptor(provider: provider)
+let api = Api(config: DefaultApiConfig(interceptors: [oauth]))
+
+let subscription = provider.subscribe(.signOut) {
+    // Update application state. Runs on the thread that publishes the event.
+}
+
+provider.signOut()
+subscription.cancel()
+```
+
+Retain each subscription to keep it active. Explicit cancellation or releasing the
+token unregisters that subscriber. Multiple interceptors and application listeners
+can observe one provider. The same provider and interceptor can serve a later sign-in
+once the application has installed its new credentials.
+
+Fully custom providers can implement both `OAuthProvider` and `OAuthSessionEvents`
+without inheriting the base class. `OAuthSessionEventPublisher` supplies thread-safe
+subscription management: forward `subscribe` to it and call `send(.signOut)` after
+invalidating refresh work and clearing credentials, before `signOut()` returns.
+Publish outside credential locks. Plain `OAuthProvider` implementations remain usable,
+but without events the interceptor cannot cancel its waiting requests immediately on logout.
+
+Local sign-out does not revoke tokens at the server or cancel refresh transport.
+Requests already past OAuth must be cancelled through their operations. Requests
+still waiting for OAuth are cancelled asynchronously on each interceptor's queue
+with `ApiError.cancelled`; late refresh results from the old session are ignored.
+Direct refresh callers receive `OAuthError.sessionEnded` if sign-out cancels their
+pending refresh. Sign-out itself does not trigger `onFailedToRenew`.
+
 ## Response validation
 
 Existing `send` calls continue to accept HTTP status codes 200–299 by default.

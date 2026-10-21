@@ -89,6 +89,7 @@ private final class StubSignIn: GoogleSignInClient {
     restoreCount += 1
     callback?(restoredUser, restorationError)
   }
+  func signOut() { restoredUser = nil }
 }
 
 private final class StubGoogleUser: GIDGoogleUser {

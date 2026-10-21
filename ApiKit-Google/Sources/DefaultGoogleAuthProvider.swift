@@ -11,7 +11,8 @@ import Foundation
 import GoogleSignIn
 
 /// A default implementation of GoogleSignIn.
-open class DefaultGoogleAuthProvider: OAuthProvider {
+open class DefaultGoogleAuthProvider: OAuthProvider, OAuthSessionEvents {
+  private let events = OAuthSessionEventPublisher()
   private var clientOverride: GoogleSignInClient?
   private var client: GoogleSignInClient { clientOverride ?? googleSignIn }
   open var googleSignIn = GIDSignIn.sharedInstance
@@ -20,6 +21,15 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
 
   init(client: GoogleSignInClient) {
     clientOverride = client
+  }
+
+  public func subscribe(_ event: OAuthSessionEvent, _ handler: @escaping () -> Void) -> OAuthSubscription {
+    events.subscribe(event, handler)
+  }
+
+  public func signOut() {
+    client.signOut()
+    events.send(.signOut)
   }
 
   public var tokenState: TokenState {
@@ -67,6 +77,7 @@ public enum GoogleAuthError: Error {
 protocol GoogleSignInClient {
   var currentUser: GIDGoogleUser? { get }
   func restorePreviousSignIn(callback: GIDSignInCallback?)
+  func signOut()
 }
 
 extension GIDSignIn: GoogleSignInClient {}
