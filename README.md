@@ -20,6 +20,37 @@ Api.send(.get("https://jsonplaceholder.typicode.com/users")) { (result: Result<[
 let users: [User] = try await Api.send(.get("https://jsonplaceholder.typicode.com/users"))
 ```
 
+## Cancellation
+
+Keep the returned operation to cancel a request or download:
+
+```swift
+let operation = Api.send(.get("https://jsonplaceholder.typicode.com/users")) {
+    (result: Result<[User], Error>) in
+    // Cancellation completes once with ApiError.cancelled.
+}
+operation?.cancel()
+```
+
+Each operation exposes a read-only `id` (`UUID`) matching the identifier passed
+to interceptor callbacks and included in `ApiError.cancelled`. Use it to
+correlate an operation with those events.
+
+Cancellation works while queued, waiting for an interceptor, or sending the
+request. It stops the underlying URLSession task and finishes the operation.
+Async requests and downloads also cancel their operation when the enclosing
+Swift `Task` is cancelled. An already cancelled task throws `CancellationError`
+before starting a request; cancelling an active request throws `ApiError.cancelled`.
+
+Request preparation uses internal dispatch queues and callback continuations.
+Waiting for an asynchronous request modifier or OAuth token refresh does not
+block a thread. `requestQueue` starts and limits concurrent operations;
+response interceptors and final completions run on `responseQueue`.
+
+Requests sharing an `OAuthInterceptor` share an in-progress token refresh.
+Cancelling one request leaves the refresh available to other requests. A failed
+refresh cancels all requests waiting for that attempt.
+
 ## Why?
 
 Allows for simple middleware/intercepting of request and response. Which is great for custom authentication / request & response manipulation. Also since it just wraps Apple's URLSession API it is very easy to intergrate into existing codebases.

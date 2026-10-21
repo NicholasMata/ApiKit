@@ -15,7 +15,9 @@ public enum OAuthError: Error {
 
 /// Used to add OAuth access token to request for authentication / authorization.
 open class OAuthInterceptor: ApiInterceptor {
-  private let semaphore = DispatchSemaphore(value: 1)
+  private let queue = DispatchQueue(label: "ApiKit.OAuthInterceptor")
+  private var refreshId: UUID?
+  private var pendingRequests: [(request: URLRequest, completion: (URLRequest?) -> Void)] = []
   /// A callack that will get called on the DispatchQueue.main indicating the user could not be signed in silently.
   public var onFailedToRenew: ((Error?) -> Void)?
   private var provider: OAuthProvider
@@ -40,36 +42,51 @@ open class OAuthInterceptor: ApiInterceptor {
     self.workItem = workItem
   }
 
-  public func api(_ api: Api,
+  public func api(_: Api,
                   modifyRequest request: URLRequest,
                   withId _: UUID,
                   onNewRequest: @escaping (URLRequest?) -> Void)
   {
-    semaphore.wait()
-    let tokenState = provider.tokenState
-    guard tokenState == TokenState.expired else {
-      self.semaphore.signal()
-      if case let .valid(token) = tokenState {
-        let newRequest = provider.attach(token: token, to: request)
-        onNewRequest(newRequest)
-      } else {
-        onNewRequest(nil)
-        self.failedToRenew(with: OAuthError.noToken)
-      }
+    queue.async { self.prepare(request, completion: onNewRequest) }
+  }
+
+  private func prepare(_ request: URLRequest, completion: @escaping (URLRequest?) -> Void) {
+    if refreshId != nil {
+      pendingRequests.append((request, completion))
       return
     }
 
-    provider.refreshToken { result in
-      switch result {
-      case let .success(token):
-        let newRequest = self.provider.attach(token: token, to: request)
-        self.semaphore.signal()
-        onNewRequest(newRequest)
-      case let .failure(error):
-        self.semaphore.signal()
-        onNewRequest(nil)
-        self.failedToRenew(with: error)
+    switch provider.tokenState {
+    case let .valid(token):
+      completion(provider.attach(token: token, to: request))
+    case .missing:
+      completion(nil)
+      failedToRenew(with: OAuthError.noToken)
+    case .expired:
+      pendingRequests.append((request, completion))
+      let id = UUID()
+      refreshId = id
+      provider.refreshToken { result in
+        self.queue.async { self.finishRefresh(result, id: id) }
       }
+    }
+  }
+
+  private func finishRefresh(_ result: Result<String, Error>, id: UUID) {
+    guard refreshId == id else { return }
+    refreshId = nil
+    let requests = pendingRequests
+    pendingRequests.removeAll()
+    switch result {
+    case let .success(token):
+      for pending in requests {
+        pending.completion(provider.attach(token: token, to: pending.request))
+      }
+    case let .failure(error):
+      for pending in requests {
+        pending.completion(nil)
+      }
+      failedToRenew(with: error)
     }
   }
 }

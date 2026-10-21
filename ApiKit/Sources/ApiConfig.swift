@@ -15,7 +15,8 @@ public class DefaultApiConfig: ApiConfig {
   public var decoder: DataDecoder
   /// An operation queue that response completion and interceptors will be executed on.
   public var responseQueue: OperationQueue
-  /// An operation queue that the request and interceptors will be executed on.
+  /// Starts and limits concurrent request operations. Asynchronous request preparation
+  /// continues on internal dispatch queues without blocking this queue's threads.
   public var requestQueue: OperationQueue
   
   
@@ -45,7 +46,8 @@ public protocol ApiConfig {
   var decoder: DataDecoder { get }
   /// An operation queue that response completion and interceptors will be executed on.
   var responseQueue: OperationQueue { get }
-  /// An operation queue that the request and interceptors will be executed on.
+  /// Starts and limits concurrent request operations. Asynchronous request preparation
+  /// continues on internal dispatch queues without blocking this queue's threads.
   var requestQueue: OperationQueue { get }
 
   /// Used to resolve header conflicts when two headers are merged.

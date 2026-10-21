@@ -9,6 +9,7 @@ import Foundation
 
 /// A list of errors that can occur because of API issues.
 public enum ApiError: Error {
+  /// The operation was cancelled by its caller or a request interceptor.
   case cancelled(request: URLRequest, id: UUID)
   /// A bad status code occurred.
   case badStatusCode(error: Any?, response: HttpDataResponse)
