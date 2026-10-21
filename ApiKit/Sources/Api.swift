@@ -84,6 +84,10 @@ open class Api {
   /// - Returns: An HttpOperation that can be used to cancel this operation.
   @discardableResult
   public func send(_ request: URLRequest, completion: HttpDataCompletion) -> HttpOperation {
+    send(request, validations: [.statusCode], completion: completion)
+  }
+
+  func send(_ request: URLRequest, validations: [ResponseValidation], completion: HttpDataCompletion) -> HttpOperation {
     let responseQueue = config.responseQueue
     let operation = HttpOperation(request: request, session: urlSession) { result in
       responseQueue.addOperation { completion?(result) }
@@ -105,10 +109,13 @@ open class Api {
           $0.api(self, didReceive: result, withId: id, for: request, completion: complete)
         }
         guard !wasIntercepted else { return }
-        if case let .success(response) = result, !response.successful {
-          complete(.failure(ApiError.badStatusCode(error: nil, response: response)))
-        } else {
+        do {
+          if case let .success(response) = result {
+            for validation in validations { try validation.validate(response) }
+          }
           complete(result)
+        } catch {
+          complete(.failure(error))
         }
       }
     }
@@ -196,20 +203,7 @@ public extension Api {
   /// - Returns: An HttpOperation that can be used to cancel this operation.
   @discardableResult
   func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: HttpCompletion<T>) -> HttpOperation? {
-    let decoder = decoder ?? config.decoder
-    return send(request) { (result: Result<HttpDataResponse, Error>) in
-      switch result {
-      case let .success(response):
-        do {
-          let body = try decoder.decode(T.self, from: response.data)
-          completion?(.success(HttpResponse(rawResponse: response, body: body)))
-        } catch {
-          completion?(.failure(ApiError.serializationFailed(error: error, response: response)))
-        }
-      case let .failure(error):
-        completion?(.failure(error))
-      }
-    }
+    using(request).send(decoder: decoder, completion: completion)
   }
 
   /// Sends a request and decodes response body using provided DataDecoder or the default decoder from ApiConfig.
@@ -221,15 +215,7 @@ public extension Api {
   /// - Returns: An HttpOperation that can be used to cancel this operation.
   @discardableResult
   func send<T: Decodable>(_ request: URLRequest, decoder: DataDecoder? = nil, completion: ApiCompletion<T>) -> HttpOperation? {
-    let decoder = decoder ?? config.decoder
-    return send(request, decoder: decoder) { (result: Result<HttpResponse<T>, Error>) in
-      switch result {
-      case let .success(response):
-        completion?(.success(response.body))
-      case let .failure(error):
-        completion?(.failure(error))
-      }
-    }
+    using(request).send(decoder: decoder, completion: completion)
   }
 }
 
@@ -298,7 +284,7 @@ extension Api {
 }
 
 @available(iOS 13.0, *)
-private func withCancellableOperation<T>(
+func withCancellableOperation<T>(
   _ start: (@escaping (Result<T, Error>) -> Void) -> HttpOperation?
 ) async throws -> T {
   let cancellation = HttpOperationCancellation()

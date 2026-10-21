@@ -58,6 +58,51 @@ Requests sharing an `OAuthInterceptor` share an in-progress token refresh.
 Cancelling one request leaves the refresh available to other requests. A failed
 refresh cancels all requests waiting for that attempt.
 
+## Response validation
+
+Existing `send` calls continue to accept HTTP status codes 200–299 by default.
+Use `using` to configure validation for an individual request:
+
+```swift
+let operation = Api.using(.get("https://jsonplaceholder.typicode.com/users"))
+    .validating(.statusCode([200, 201]))
+    .validating(.contentType(["application/json"]))
+    .send { (result: Result<[User], Error>) in
+        // Validation runs before decoding.
+    }
+```
+
+`using` creates an immutable builder; the request starts when `send` is called.
+It supports `HttpRequest` and `URLRequest`, raw responses, decoded bodies,
+decoded responses with HTTP metadata, and async calls. The returned operation
+supports cancellation.
+
+Status validation also defaults to 200–299 when using the builder. An explicit
+`.statusCode([200, 404])` replaces the current status check; `.statusCode` uses
+the default range. Other checks accumulate across `validating` calls and run in
+order until one fails. To remove all checks, use `.none`:
+
+```swift
+let response: HttpDataResponse = try await Api.using(request)
+    .validating(.none)
+    .send()
+```
+
+Checks added after `.none` start a new validation policy. For example,
+`.validating(.none).validating(.contentType(["application/json"]))` checks the
+content type while accepting any HTTP status.
+
+Content-type checks ignore case and parameters such as `charset`, accept MIME
+wildcards such as `application/*` and `*/*`, and fail when Content-Type is missing.
+Custom checks use `.validating(.custom { response in ... })`; throw an error to
+reject the response. Custom errors are delivered unchanged. Status failures use
+the existing `ApiError.badStatusCode`; content-type failures use
+`ResponseValidationError.unacceptableContentType`.
+
+Response interceptors run first. As with existing `send` calls, an interceptor
+that handles a response bypasses validation. Transport failures also bypass
+validation.
+
 ## Why?
 
 Allows for simple middleware/intercepting of request and response. Which is great for custom authentication / request & response manipulation. Also since it just wraps Apple's URLSession API it is very easy to intergrate into existing codebases.
