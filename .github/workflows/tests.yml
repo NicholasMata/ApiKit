@@ -1,0 +1,112 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, '1.1.0', next]
+  pull_request:
+    branches: [main, '1.1.0', next]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Tests and coverage (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Toolchain
+        run: swift --version
+      - name: Test and check coverage
+        run: bash scripts/test.sh coverage
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f .build/reports/summary.md ]; then
+            cat .build/reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.os }}
+          path: .build/reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  concurrency:
+    name: Concurrency stress and Thread Sanitizer
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Repeat cancellation and concurrency tests
+        run: bash scripts/test.sh stress
+      - name: Thread Sanitizer
+        run: bash scripts/test.sh thread
+      - name: Upload sanitizer results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: thread-sanitizer
+          path: .build/reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: Optimized release tests
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - run: bash scripts/test.sh release
+      - name: Upload optimized test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-tests
+          path: .build/reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  ios:
+    name: iOS simulator tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Select an available iPhone simulator
+        run: |
+          device_id=$(xcrun simctl list devices available -j | ruby -rjson -e '
+            devices = JSON.parse(STDIN.read).fetch("devices")
+            device = devices.select { |runtime, _| runtime.include?("iOS") }
+              .values.flatten.find { |entry| entry.fetch("name").start_with?("iPhone") }
+            abort "No iPhone simulator available" unless device
+            puts device.fetch("udid")')
+          echo "SIMULATOR_ID=$device_id" >> "$GITHUB_ENV"
+      - name: Test all modules on iOS
+        run: |
+          xcodebuild test -scheme ApiKit-Package \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath .build/ios \
+            -resultBundlePath .build/ios-tests.xcresult \
+            -disableAutomaticPackageResolution \
+            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+      - name: Upload iOS results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-tests
+          path: .build/ios-tests.xcresult
+          if-no-files-found: warn
+          retention-days: 14

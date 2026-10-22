@@ -1,12 +1,15 @@
 # ApiKit
 
 [![Platform](https://img.shields.io/badge/Platforms-iOS%20%7C%20macOS%20%7C%20watchOS%20%7C%20tvOS-4E4E4E.svg?colorA=28a745)](#installation)
+[![Tests](https://github.com/NicholasMata/ApiKit/actions/workflows/tests.yml/badge.svg?branch=1.1.0)](https://github.com/NicholasMata/ApiKit/actions/workflows/tests.yml?query=branch%3A1.1.0)
 
 A simple way to connect your swift code to your APIs.
 
 This branch targets **1.1.0**. See the [release notes](RELEASE_NOTES.md) for
 cancellation fixes and execution changes. Development for **2.0.0** continues
 on [`next`](https://github.com/NicholasMata/ApiKit/tree/next).
+
+See [Testing](docs/TESTING.md) for local checks, CI jobs, and coverage reports.
 
 ### iOS 12+
 ```swift

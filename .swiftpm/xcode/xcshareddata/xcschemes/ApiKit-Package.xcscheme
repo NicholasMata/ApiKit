@@ -5,25 +5,6 @@
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
-      <PreActions>
-         <ExecutionAction
-            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
-            <ActionContent
-               title = "Run Script"
-               scriptText = "if which swiftformat &gt;/dev/null; then&#10;  exec &gt; &quot;${PROJECT_DIR}/prebuild.log&quot; 2&gt;&amp;1&#10;  swiftformat .&#10;else&#10;  echo &quot;warning: SwiftFormat not installed, download from https://github.com/nicklockwood/SwiftFormat&quot;&#10;fi&#10;"
-               shellToInvoke = "/bin/zsh">
-               <EnvironmentBuildable>
-                  <BuildableReference
-                     BuildableIdentifier = "primary"
-                     BlueprintIdentifier = "ApiKit"
-                     BuildableName = "ApiKit"
-                     BlueprintName = "ApiKit"
-                     ReferencedContainer = "container:">
-                  </BuildableReference>
-               </EnvironmentBuildable>
-            </ActionContent>
-         </ExecutionAction>
-      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"

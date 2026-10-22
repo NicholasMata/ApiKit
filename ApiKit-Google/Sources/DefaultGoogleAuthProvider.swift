@@ -12,12 +12,18 @@ import GoogleSignIn
 
 /// A default implementation of GoogleSignIn.
 open class DefaultGoogleAuthProvider: OAuthProvider {
+  private var clientOverride: GoogleSignInClient?
+  private var client: GoogleSignInClient { clientOverride ?? googleSignIn }
   open var googleSignIn = GIDSignIn.sharedInstance
 
   public init() {}
 
+  init(client: GoogleSignInClient) {
+    clientOverride = client
+  }
+
   public var tokenState: TokenState {
-      guard let currentUser = googleSignIn.currentUser else {
+      guard let currentUser = client.currentUser else {
         return TokenState.missing
       }
       let expiration = currentUser.authentication.accessTokenExpirationDate
@@ -32,7 +38,7 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
   }
 
   public func refreshToken(completion: @escaping (Result<String, any Error>) -> Void) {
-    googleSignIn.restorePreviousSignIn { user, error in
+    client.restorePreviousSignIn { user, error in
       guard error == nil else {
         completion(.failure(error!))
         return
@@ -56,3 +62,11 @@ open class DefaultGoogleAuthProvider: OAuthProvider {
 public enum GoogleAuthError: Error {
   case unknown
 }
+
+/// Allows offline tests without changing the public provider or restoration behavior.
+protocol GoogleSignInClient {
+  var currentUser: GIDGoogleUser? { get }
+  func restorePreviousSignIn(callback: GIDSignInCallback?)
+}
+
+extension GIDSignIn: GoogleSignInClient {}

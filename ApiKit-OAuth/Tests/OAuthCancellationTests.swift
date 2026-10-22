@@ -192,6 +192,123 @@ final class OAuthCancellationTests: XCTestCase {
     XCTAssertEqual(responses.requests.map { $0.url?.path }, ["/a", "/b"])
   }
 
+  func testCancellingEveryWaiterDoesNotSendRequestsAfterRefresh() {
+    let count = 20
+    let refreshing = expectation(description: "Shared refresh starts")
+    let returned = expectation(description: "All modifier calls return")
+    returned.expectedFulfillmentCount = count
+    let provider = PendingTokenProvider(onRefresh: { refreshing.fulfill() })
+    defer { provider.finishRefresh() }
+    let oauth = ObservedOAuthInterceptor(provider: provider, onReturn: { path in
+      if path != "/future" { returned.fulfill() }
+    })
+    let responses = SuccessfulResponseInterceptor()
+    let api = Api(config: DefaultApiConfig(interceptors: [oauth, responses]))
+    let cancelled = expectation(description: "All requests cancel once")
+    cancelled.expectedFulfillmentCount = count
+    cancelled.assertForOverFulfill = true
+    let operations = (0 ..< count).map { index in
+      api.send(request("/\(index)")) { result in
+        self.assertCancelled(result)
+        cancelled.fulfill()
+      }
+    }
+    wait(for: [refreshing, returned], timeout: 5)
+    operations.forEach { $0.cancel() }
+    wait(for: [cancelled], timeout: 5)
+    XCTAssertTrue(provider.isRefreshPending)
+    provider.finishRefresh()
+
+    // The same OAuth queue processes this after draining the cancelled waiters.
+    let reused = expectation(description: "Future request reuses refreshed token")
+    api.send(request("/future")) { result in
+      self.assertSuccessful(result)
+      reused.fulfill()
+    }
+    wait(for: [reused], timeout: 5)
+    XCTAssertEqual(provider.refreshCount, 1)
+    XCTAssertEqual(responses.requests.map { $0.url?.path }, ["/future"])
+  }
+
+  func testRefreshCanBeRetriedAfterFailure() {
+    let refreshing = expectation(description: "Refresh starts")
+    let provider = PendingTokenProvider(onRefresh: { refreshing.fulfill() })
+    let responses = SuccessfulResponseInterceptor()
+    let api = Api(config: DefaultApiConfig(interceptors: [OAuthInterceptor(provider: provider), responses]))
+    let cancelled = expectation(description: "Failed refresh cancels first request")
+    api.send(request("/first")) { result in
+      self.assertCancelled(result)
+      cancelled.fulfill()
+    }
+    wait(for: [refreshing], timeout: 5)
+    provider.finishRefresh(.failure(URLError(.timedOut)))
+    wait(for: [cancelled], timeout: 5)
+
+    let retried = expectation(description: "Another refresh starts")
+    provider.onNextRefresh = { retried.fulfill() }
+    let succeeded = expectation(description: "Retry succeeds")
+    api.send(request("/retry")) { result in
+      self.assertSuccessful(result)
+      succeeded.fulfill()
+    }
+    wait(for: [retried], timeout: 5)
+    provider.finishRefresh()
+    wait(for: [succeeded], timeout: 5)
+    XCTAssertEqual(provider.refreshCount, 2)
+    XCTAssertEqual(responses.requests.map { $0.url?.path }, ["/retry"])
+  }
+
+  func testDuplicateRefreshCompletionDoesNotCompleteRequestsTwice() {
+    let refreshing = expectation(description: "Refresh starts")
+    let provider = PendingTokenProvider(onRefresh: { refreshing.fulfill() })
+    let api = Api(config: DefaultApiConfig(interceptors: [OAuthInterceptor(provider: provider), SuccessfulResponseInterceptor()]))
+    let completed = expectation(description: "One request completion")
+    completed.assertForOverFulfill = true
+    api.send(request("/first")) { result in
+      self.assertSuccessful(result)
+      completed.fulfill()
+    }
+    wait(for: [refreshing], timeout: 5)
+    provider.finishRefresh(repeatCompletion: true)
+    wait(for: [completed], timeout: 5)
+    let drained = expectation(description: "Later request passes duplicate callback")
+    api.send(request("/later")) { result in
+      self.assertSuccessful(result)
+      drained.fulfill()
+    }
+    wait(for: [drained], timeout: 5)
+    XCTAssertEqual(provider.refreshCount, 1)
+  }
+
+  func testMissingTokenCancelsAndReportsFailureOnMainThread() {
+    let provider = FixedTokenProvider(state: .missing)
+    let failed = expectation(description: "Missing token is reported")
+    failed.assertForOverFulfill = true
+    let oauth = OAuthInterceptor(provider: provider, onFailedToRenew: { error in
+      XCTAssertTrue(Thread.isMainThread)
+      if case OAuthError.noToken? = error {} else { XCTFail("Expected noToken") }
+      failed.fulfill()
+    })
+    let cancelled = expectation(description: "Missing token cancels request")
+    oauth.api(Api(), modifyRequest: request("/missing"), withId: UUID()) { newRequest in
+      XCTAssertNil(newRequest)
+      cancelled.fulfill()
+    }
+    wait(for: [cancelled, failed], timeout: 5)
+  }
+
+  func testValidTokenUsesProviderAttachmentWithoutRefreshing() {
+    let provider = FixedTokenProvider(state: .valid(token: "existing"))
+    let oauth = OAuthInterceptor(provider: provider)
+    let attached = expectation(description: "Provider attaches valid token")
+    oauth.api(Api(), modifyRequest: request("/valid"), withId: UUID()) { newRequest in
+      XCTAssertEqual(newRequest?.value(forHTTPHeaderField: "X-Custom-Auth"), "existing")
+      XCTAssertNil(newRequest?.value(forHTTPHeaderField: "Authorization"))
+      attached.fulfill()
+    }
+    wait(for: [attached], timeout: 5)
+  }
+
   private func request(_ path: String) -> URLRequest {
     URLRequest(url: URL(string: "https://apikit.test\(path)")!)
   }
@@ -214,6 +331,20 @@ final class OAuthCancellationTests: XCTestCase {
   }
 }
 
+private final class FixedTokenProvider: OAuthProvider {
+  let tokenState: TokenState
+  init(state: TokenState) { tokenState = state }
+  func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
+    XCTFail("Valid and missing states must not refresh")
+    completion(.failure(OAuthError.noToken))
+  }
+  func attach(token: String, to request: URLRequest) -> URLRequest {
+    var request = request
+    request.setValue(token, forHTTPHeaderField: "X-Custom-Auth")
+    return request
+  }
+}
+
 /// Holds refresh open until the test explicitly supplies a fresh credential.
 private final class PendingTokenProvider: OAuthProvider {
   private let lock = NSLock()
@@ -222,6 +353,20 @@ private final class PendingTokenProvider: OAuthProvider {
   private var state: TokenState = .expired
   private var pendingRefresh: ((Result<String, Error>) -> Void)?
   private var count = 0
+  private var nextRefresh: (() -> Void)?
+
+  var onNextRefresh: (() -> Void)? {
+    get {
+      lock.lock()
+      defer { lock.unlock() }
+      return nextRefresh
+    }
+    set {
+      lock.lock()
+      nextRefresh = newValue
+      lock.unlock()
+    }
+  }
 
   init(onRefresh: @escaping () -> Void, completesSynchronously: Bool = false) {
     self.onRefresh = onRefresh
@@ -250,14 +395,16 @@ private final class PendingTokenProvider: OAuthProvider {
     lock.lock()
     count += 1
     pendingRefresh = completion
+    let next = nextRefresh
+    nextRefresh = nil
     lock.unlock()
-    onRefresh()
+    if let next = next { next() } else { onRefresh() }
     if completesSynchronously {
       finishRefresh()
     }
   }
 
-  func finishRefresh(_ result: Result<String, Error> = .success("refreshed-token")) {
+  func finishRefresh(_ result: Result<String, Error> = .success("refreshed-token"), repeatCompletion: Bool = false) {
     lock.lock()
     if case let .success(token) = result {
       state = .valid(token: token)
@@ -266,6 +413,7 @@ private final class PendingTokenProvider: OAuthProvider {
     pendingRefresh = nil
     lock.unlock()
     completion?(result)
+    if repeatCompletion { completion?(result) }
   }
 }
 

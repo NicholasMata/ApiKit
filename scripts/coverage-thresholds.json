@@ -1,0 +1,6 @@
+{
+  "ApiKit/Sources/HttpOperation.swift": 90,
+  "ApiKit/Sources/Api.swift": 85,
+  "ApiKit-OAuth/Sources/OAuthInterceptor.swift": 90,
+  "ApiKit-Google/Sources/DefaultGoogleAuthProvider.swift": 90
+}

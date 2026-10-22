@@ -21,6 +21,10 @@ validation and OAuth session APIs.
   and cancellation errors.
 - Deliver response interception and final completion on `responseQueue`,
   including responses supplied before a network request is sent.
+- Preserve existing request headers while correctly setting `Content-Type` when
+  adding an encoded body to a `URLRequest`.
+- Replace live-service tests with local fixtures and add CI for code coverage,
+  repeated concurrency tests, Thread Sanitizer, release builds, and iOS tests.
 
 ### Compatibility
 

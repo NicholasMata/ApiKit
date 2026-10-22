@@ -1,92 +1,60 @@
-//
-//  ApiKit-OAuthTests.swift
-//
-//
-//  Created by Nicholas Mata on 4/15/24.
-//
-
 import ApiKit
 @testable import ApiKit_OAuth
 import XCTest
 
-public struct DummyLoginInfo: Codable {
-  public let username: String
-  public let password: String
-  public let expiresInMins: Int
-}
+final class ApiKitOAuthTests: XCTestCase {
+  func testTokenStateUsesAccessTokenBeforeRefreshToken() {
+    let manager = MemoryTokenManager()
+    let provider = ManagedProvider(manager: manager)
+    XCTAssertEqual(provider.tokenState, .missing)
+    manager.refreshToken = token("refresh", expiresIn: 3600)
+    XCTAssertEqual(provider.tokenState, .expired)
+    manager.accessToken = token("access", expiresIn: 3600)
+    XCTAssertEqual(provider.tokenState, .valid(token: "access"))
+    manager.accessToken = token("old", expiresIn: -1)
+    XCTAssertEqual(provider.tokenState, .expired)
+    manager.refreshToken = token("old refresh", expiresIn: -1)
+    XCTAssertEqual(provider.tokenState, .missing)
+    manager.accessToken = token("access", expiresIn: 3600)
+    XCTAssertEqual(provider.tokenState, .valid(token: "access"))
+  }
 
-public struct DummyLoginResponse: Codable {
-  public var token: String
-}
+  func testExpirationPaddingAvoidsNearlyExpiredTokens() {
+    XCTAssertTrue(token("fresh", expiresIn: 3600).isValid())
+    XCTAssertTrue(token("near expiration", expiresIn: 30).isExpired())
+    XCTAssertTrue(token("expired", expiresIn: -1).isExpired())
+  }
 
-public struct DummyProduct: Codable {
-  public var id: Int
-  public var title: String
-}
+  func testDefaultAttachmentPreservesOtherHeadersAndOriginalRequest() {
+    let provider = ManagedProvider(manager: MemoryTokenManager())
+    var request = URLRequest(url: URL(string: "https://apikit.test")!)
+    request.setValue("original", forHTTPHeaderField: "Authorization")
+    request.setValue("trace", forHTTPHeaderField: "X-Trace")
+    let attached = provider.attach(token: "access", to: request)
+    XCTAssertEqual(attached.value(forHTTPHeaderField: "Authorization"), "Bearer access")
+    XCTAssertEqual(attached.value(forHTTPHeaderField: "X-Trace"), "trace")
+    XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "original")
+  }
 
-public class DummyProvider: OAuthTokenManagedProvider {
-  public var tokenManager: any TokenManager = OIDCTokenManager(account: "tests")
-
-  public func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
-    do {
-      Thread.sleep(forTimeInterval: 1)
-      let loginBody = DummyLoginInfo(username: "kminchelle", password: "0lelplR", expiresInMins: 60)
-      try Api.send(.post("https://dummyjson.com/auth/login", body: loginBody)) { (result: Result<DummyLoginResponse, Error>) in
-        switch result {
-        case let .success(response):
-          self.tokenManager.accessToken = Token(token: response.token, expiresIn: loginBody.expiresInMins * 60, retrievedOn: Date())
-          completion(.success(response.token))
-        case let .failure(err):
-          completion(.failure(err))
-        }
-      }
-    } catch {
-      completion(.failure(error))
-    }
+  private func token(_ value: String, expiresIn: Int) -> Token {
+    Token(token: value, expiresIn: expiresIn, retrievedOn: Date())
   }
 }
 
-final class ApiKitOAuthTests: XCTestCase {
-  func testOAuthTokenManagedProvider() throws {
-    // This to pretend we have a valid refresh token
-    let provider = DummyProvider()
-    provider.tokenManager.refreshToken = Token(token: "fakeRefresh", expiresIn: 4600, retrievedOn: Date())
+private final class ManagedProvider: OAuthTokenManagedProvider {
+  var tokenManager: TokenManager
+  init(manager: TokenManager) { tokenManager = manager }
+  func refreshToken(completion: @escaping (Result<String, Error>) -> Void) {
+    completion(.success("refreshed"))
+  }
+}
 
-    let interceptors: [ApiInterceptor] = [ConnectivityInterceptor(), OAuthInterceptor(provider: provider)]
-    let config = DefaultApiConfig(interceptors: interceptors)
-    let api = Api(config: config)
-    let p1Expectation = self.expectation(description: "Product1")
-
-    var product: DummyProduct? = nil
-
-    api.send(.get("https://dummyjson.com/auth/products/1")) { (result: Result<DummyProduct, Error>) in
-      switch result {
-      case let .success(response):
-        product = response
-        p1Expectation.fulfill()
-      case .failure:
-        XCTAssert(false)
-      }
-    }
-
-    let p2Expectation = self.expectation(description: "Product2")
-    var product2: DummyProduct? = nil
-    api.send(.get("https://dummyjson.com/auth/products/2")) { (result: Result<DummyProduct, Error>) in
-      switch result {
-      case let .success(response):
-        product2 = response
-        p2Expectation.fulfill()
-      case .failure:
-        XCTAssert(false)
-      }
-    }
-
-    waitForExpectations(timeout: 1.5) { _ in
-      XCTAssertNotNil(product)
-      XCTAssertEqual(product!.id, 1)
-
-      XCTAssertNotNil(product2)
-      XCTAssertEqual(product2!.id, 2)
-    }
+private final class MemoryTokenManager: TokenManager {
+  var accessToken: Token?
+  var refreshToken: Token?
+  func decode(from _: Data) {}
+  func clear() {
+    accessToken = nil
+    refreshToken = nil
   }
 }
