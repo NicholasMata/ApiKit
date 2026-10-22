@@ -181,11 +181,7 @@ public extension URLRequest {
   @discardableResult
   mutating func add<T: Encodable>(encodable: T, encoder: DataEncoder = JSONEncoder(), mimeType: String = "application/json") throws -> URLRequest {
     let data = try encoder.encode(encodable)
-    if var headers = allHTTPHeaderFields {
-      headers["Content-Type"] = mimeType
-    } else {
-      allHTTPHeaderFields = ["Content-Type": mimeType]
-    }
+    setValue(mimeType, forHTTPHeaderField: "Content-Type")
     return add(rawBody: data)
   }
 }
